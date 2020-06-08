@@ -169,6 +169,7 @@ func (b *Bmattermost) skipMessage(message *matterclient.Message) bool {
 		message.Type == "system_join_channel" ||
 		message.Type == "system_leave_channel" {
 		if b.GetBool("nosendjoinpart") {
+			b.Log.Debugf("Skip: nosendjoinpart")
 			return true
 		}
 		b.Log.Debugf("Sending JOIN_LEAVE event from %s to gateway", b.Account)
@@ -184,6 +185,7 @@ func (b *Bmattermost) skipMessage(message *matterclient.Message) bool {
 
 	// Handle edited messages
 	if (message.Raw.Event == model.WEBSOCKET_EVENT_POST_EDITED) && b.GetBool("EditDisable") {
+		b.Log.Debugf("Skip: Edited Message")
 		return true
 	}
 
@@ -203,22 +205,26 @@ func (b *Bmattermost) skipMessage(message *matterclient.Message) bool {
 
 	// Ignore messages sent from a user logged in as the bot
 	if b.mc.User.Username == message.Username {
+		b.Log.Debugf("Skip: Sent by my Username")
 		return true
 	}
 
 	// if the message has reactions don't repost it (for now, until we can correlate reaction with message)
 	if message.Post.HasReactions {
+		b.Log.Debugf("Skip: Has Reactions")
 		return true
 	}
 
 	// ignore messages from other teams than ours
 	if message.Raw.Data["team_id"].(string) != b.TeamID {
+		b.Log.Debugf("Skip: TeamID")
 		return true
 	}
 
 	// only handle posted, edited or deleted events
 	if !(message.Raw.Event == "posted" || message.Raw.Event == model.WEBSOCKET_EVENT_POST_EDITED ||
 		message.Raw.Event == model.WEBSOCKET_EVENT_POST_DELETED) {
+		b.Log.Debugf("Skip: Unhandled")
 		return true
 	}
 	return false
