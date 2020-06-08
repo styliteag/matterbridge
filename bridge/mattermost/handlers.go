@@ -103,10 +103,16 @@ func (b *Bmattermost) handleMatterClient(messages chan *config.Message) {
 			continue
 		}
 
-		channelName := b.getChannelName(message.Post.ChannelId)
-		if channelName == "" {
-			channelName = message.Channel
-		}
+	channelName := b.getChannelName(message.Post.ChannelId)
+	if channelName == "" {
+		channelName = message.Channel
+	}
+
+	// If A message is of type "D" (a private message) from another user
+	// Then mark the message as a private message
+	if message.Raw.Data["channel_type"].(string) == "D" {
+		channelName = "@private"
+	}
 
 		// only download avatars if we have a place to upload them (configured mediaserver)
 		if b.General.MediaServerUpload != "" || b.General.MediaDownloadPath != "" {

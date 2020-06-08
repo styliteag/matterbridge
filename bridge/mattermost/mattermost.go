@@ -107,6 +107,12 @@ func (b *Bmattermost) JoinChannel(channel config.ChannelInfo) error {
 	b.channelInfoMap[channel.ID] = &channel
 	b.channelsMutex.Unlock()
 
+	// Return that we joined the private Channel
+	// Because Mattermost send us every private Message
+	if channel.Name == "@private" {
+		return nil
+	}
+
 	// we can only join channels using the API
 	if b.GetString("WebhookURL") == "" && b.GetString("WebhookBindAddress") == "" {
 		id := b.getChannelID(channel.Name)
