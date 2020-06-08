@@ -419,6 +419,7 @@ func (gw *Gateway) SendMessage(
 	canonicalParentMsgID string,
 ) (string, error) {
 	msg := *rmsg
+	gw.logger.Debugf("=> SendMessage %#v from %s (%s) to %s (%s)", msg, msg.Account, rmsg.Channel, dest.Account, channel.Name)
 	// Only send the avatar download event to ourselves.
 	if msg.Event == config.EventAvatarDownload {
 		if channel.ID != getChannelID(rmsg) {
