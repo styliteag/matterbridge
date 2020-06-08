@@ -218,7 +218,7 @@ func (b *Bmattermost) skipMessage(message *matterclient.Message) bool {
 	// ignore messages from other teams than ours
 	if message.Raw.Data["team_id"].(string) != b.TeamID {
 		b.Log.Debugf("Not Skip: TeamID")
-		message.Channel = "4jfwikx4epbppju6au8rs8aczr__iihmrrax8pn6fqy1a54tdd3nqo"
+		message.Channel = "@private"
 		message.Raw.Data["team_id"] = b.TeamID
 		//return true
 	}

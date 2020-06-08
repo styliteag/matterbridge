@@ -95,6 +95,11 @@ func (b *Bmattermost) handleMatterClient(messages chan *config.Message) {
 			continue
 		}
 
+		if message.Raw.Data["channel_type"] == "D" {
+			message.Channel = "@private"
+			// message.Channel = message.Raw.Data["channel_display_name"]
+		}
+
 		// only download avatars if we have a place to upload them (configured mediaserver)
 		if b.General.MediaServerUpload != "" || b.General.MediaDownloadPath != "" {
 			b.handleDownloadAvatar(message.UserID, message.Channel)
