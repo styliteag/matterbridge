@@ -81,6 +81,12 @@ func (b *Bmattermost) JoinChannel(channel config.ChannelInfo) error {
 	if b.Account == mattermostPlugin {
 		return nil
 	}
+
+	// Return that we joiend the private Channel
+	// Because Mattermost send us every private Message
+	if channel.Name == "@private" {
+		return nil
+	}
 	// we can only join channels using the API
 	if b.GetString("WebhookURL") == "" && b.GetString("WebhookBindAddress") == "" {
 		id := b.mc.GetChannelId(channel.Name, b.TeamID)
