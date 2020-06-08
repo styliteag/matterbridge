@@ -191,6 +191,7 @@ func (gw *Gateway) ignoreEvent(event string, dest *bridge.Bridge) bool {
 func (gw *Gateway) handleMessage(rmsg *config.Message, dest *bridge.Bridge) []*BrMsgID {
 	var brMsgIDs []*BrMsgID
 
+	gw.logger.Debug("XXXXXX: handleMessage")
 	// Not all bridges support "user is typing" indications so skip the message
 	// if the targeted bridge does not support it.
 	if rmsg.Event == config.EventUserTyping {
@@ -220,8 +221,12 @@ func (gw *Gateway) handleMessage(rmsg *config.Message, dest *bridge.Bridge) []*B
 		canonicalParentMsgID = gw.FindCanonicalMsgID(rmsg.Protocol, rmsg.ParentID)
 	}
 
+
+	gw.logger.Debug("XXXXXX: Looop Channels")
+
 	channels := gw.getDestChannel(rmsg, *dest)
 	for idx := range channels {
+		gw.logger.Debugf("XXXXXX: Looop %d",idx)
 		channel := &channels[idx]
 		msgID, err := gw.SendMessage(rmsg, dest, channel, canonicalParentMsgID)
 		if err != nil {

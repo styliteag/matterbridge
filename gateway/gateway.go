@@ -210,9 +210,11 @@ func (gw *Gateway) mapChannels() error {
 
 func (gw *Gateway) getDestChannel(msg *config.Message, dest bridge.Bridge) []config.ChannelInfo {
 	var channels []config.ChannelInfo
+	gw.logger.Debug("YYYYY: getDestChannel")
 
 	// for messages received from the api check that the gateway is the specified one
 	if msg.Protocol == apiProtocol && gw.Name != msg.Gateway {
+		gw.logger.Debug("YYYYY: 1")
 		return channels
 	}
 
@@ -224,6 +226,7 @@ func (gw *Gateway) getDestChannel(msg *config.Message, dest bridge.Bridge) []con
 				channels = append(channels, *channel)
 			}
 		}
+		gw.logger.Debug("YYYYY: 2")
 		return channels
 	}
 
@@ -233,6 +236,7 @@ func (gw *Gateway) getDestChannel(msg *config.Message, dest bridge.Bridge) []con
 		if channel.ID == getChannelID(msg) {
 			// we only have destinations if the original message is from an "in" (sending) channel
 			if !strings.Contains(channel.Direction, "in") {
+				gw.logger.Debug("YYYYY: 3")
 				return channels
 			}
 			continue
@@ -240,6 +244,7 @@ func (gw *Gateway) getDestChannel(msg *config.Message, dest bridge.Bridge) []con
 	}
 	for _, channel := range gw.Channels {
 		if _, ok := gw.Channels[getChannelID(msg)]; !ok {
+			gw.logger.Debug("YYYYY: 4")
 			continue
 		}
 
@@ -254,6 +259,8 @@ func (gw *Gateway) getDestChannel(msg *config.Message, dest bridge.Bridge) []con
 			channels = append(channels, *channel)
 		}
 	}
+	gw.logger.Debug("YYYYY: END")
+	gw.logger.Debugf("YYYYY: channels: %#v",channels)
 	return channels
 }
 
@@ -404,6 +411,7 @@ func (gw *Gateway) SendMessage(
 	canonicalParentMsgID string,
 ) (string, error) {
 	msg := *rmsg
+	gw.logger.Debugf("=> SendMessage %#v from %s (%s) to %s (%s)", msg, msg.Account, rmsg.Channel, dest.Account, channel.Name)
 	// Only send the avatar download event to ourselves.
 	if msg.Event == config.EventAvatarDownload {
 		if channel.ID != getChannelID(rmsg) {
@@ -417,8 +425,8 @@ func (gw *Gateway) SendMessage(
 	}
 
 	// Too noisy to log like other events
-	if msg.Event != config.EventUserTyping {
-		gw.logger.Debugf("=> Sending %#v from %s (%s) to %s (%s)", msg, msg.Account, rmsg.Channel, dest.Account, channel.Name)
+		if msg.Event != config.EventUserTyping {
+			gw.logger.Debugf("=> Sending %#v from %s (%s) to %s (%s)", msg, msg.Account, rmsg.Channel, dest.Account, channel.Name)
 	}
 
 	msg.Channel = channel.Name
