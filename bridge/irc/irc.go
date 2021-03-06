@@ -206,7 +206,7 @@ func (b *Birc) doSend() {
 	for msg := range b.Local {
 		<-throttle.C
 		username := msg.Username
-		if b.GetBool("Colornicks") {
+		if b.GetBool("Colornicks") && len(username) > 1 {
 			checksum := crc32.ChecksumIEEE([]byte(msg.Username))
 			colorCode := checksum%14 + 2 // quick fix - prevent white or black color codes
 			username = fmt.Sprintf("\x03%02d%s\x0F", colorCode, msg.Username)
@@ -250,6 +250,8 @@ func (b *Birc) getClient() (*girc.Client, error) {
 		SSL:        b.GetBool("UseTLS"),
 		TLSConfig:  &tls.Config{InsecureSkipVerify: b.GetBool("SkipTLSVerify"), ServerName: server}, //nolint:gosec
 		PingDelay:  time.Minute,
+		// skip gIRC internal rate limiting, since we have our own throttling
+		AllowFlood: true,
 	})
 	return i, nil
 }
