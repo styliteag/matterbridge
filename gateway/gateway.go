@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"regexp"
@@ -336,20 +337,21 @@ func (gw *Gateway) modifyUsername(msg *config.Message, dest *bridge.Bridge) stri
 			}
 			i++
 		}
-		nick = strings.Replace(nick, "{NOPINGNICK}", msg.Username[:i]+"​"+msg.Username[i:], -1)
+		nick = strings.ReplaceAll(nick, "{NOPINGNICK}", msg.Username[:i]+"\u200b"+msg.Username[i:])
 	}
 
-	nick = strings.Replace(nick, "{BRIDGE}", br.Name, -1)
-	nick = strings.Replace(nick, "{PROTOCOL}", br.Protocol, -1)
-	nick = strings.Replace(nick, "{GATEWAY}", gw.Name, -1)
-	nick = strings.Replace(nick, "{LABEL}", br.GetString("Label"), -1)
-	nick = strings.Replace(nick, "{NICK}", msg.Username, -1)
-	nick = strings.Replace(nick, "{CHANNEL}", msg.Channel, -1)
+	nick = strings.ReplaceAll(nick, "{BRIDGE}", br.Name)
+	nick = strings.ReplaceAll(nick, "{PROTOCOL}", br.Protocol)
+	nick = strings.ReplaceAll(nick, "{GATEWAY}", gw.Name)
+	nick = strings.ReplaceAll(nick, "{LABEL}", br.GetString("Label"))
+	nick = strings.ReplaceAll(nick, "{NICK}", msg.Username)
+	nick = strings.ReplaceAll(nick, "{USERID}", msg.UserID)
+	nick = strings.ReplaceAll(nick, "{CHANNEL}", msg.Channel)
 	tengoNick, err := gw.modifyUsernameTengo(msg, br)
 	if err != nil {
 		gw.logger.Errorf("modifyUsernameTengo error: %s", err)
 	}
-	nick = strings.Replace(nick, "{TENGO}", tengoNick, -1) //nolint:gocritic
+	nick = strings.ReplaceAll(nick, "{TENGO}", tengoNick)
 	return nick
 }
 
@@ -363,10 +365,23 @@ func (gw *Gateway) modifyAvatar(msg *config.Message, dest *bridge.Bridge) string
 }
 
 func (gw *Gateway) modifyMessage(msg *config.Message) {
-	if err := modifyMessageTengo(gw.BridgeValues().General.TengoModifyMessage, msg); err != nil {
+	if gw.BridgeValues().General.TengoModifyMessage != "" {
+		gw.logger.Warnf("General TengoModifyMessage=%s is deprecated and will be removed in v1.20.0, please move to Tengo InMessage=%s", gw.BridgeValues().General.TengoModifyMessage, gw.BridgeValues().General.TengoModifyMessage)
+	}
+
+	if err := modifyInMessageTengo(gw.BridgeValues().General.TengoModifyMessage, msg); err != nil {
 		gw.logger.Errorf("TengoModifyMessage failed: %s", err)
 	}
-	if err := modifyMessageTengo(gw.BridgeValues().Tengo.Message, msg); err != nil {
+
+	inMessage := gw.BridgeValues().Tengo.InMessage
+	if inMessage == "" {
+		inMessage = gw.BridgeValues().Tengo.Message
+		if inMessage != "" {
+			gw.logger.Warnf("Tengo Message=%s is deprecated and will be removed in v1.20.0, please move to Tengo InMessage=%s", inMessage, inMessage)
+		}
+	}
+
+	if err := modifyInMessageTengo(inMessage, msg); err != nil {
 		gw.logger.Errorf("Tengo.Message failed: %s", err)
 	}
 
@@ -417,9 +432,15 @@ func (gw *Gateway) SendMessage(
 		}
 	}
 
+	// Only send irc notices to irc
+	if msg.Event == config.EventNoticeIRC && dest.Protocol != "irc" {
+		return "", nil
+	}
+
 	// Too noisy to log like other events
+	debugSendMessage := ""
 	if msg.Event != config.EventUserTyping {
-		gw.logger.Debugf("=> Sending %#v from %s (%s) to %s (%s)", msg, msg.Account, rmsg.Channel, dest.Account, channel.Name)
+		debugSendMessage = fmt.Sprintf("=> Sending %#v from %s (%s) to %s (%s)", msg, msg.Account, rmsg.Channel, dest.Account, channel.Name)
 	}
 
 	msg.Channel = channel.Name
@@ -439,21 +460,33 @@ func (gw *Gateway) SendMessage(
 	}
 
 	// if the parentID is still empty and we have a parentID set in the original message
-	// this means that we didn't find it in the cache so set it "msg-parent-not-found"
+	// this means that we didn't find it in the cache so set it to a "msg-parent-not-found" constant
 	if msg.ParentID == "" && rmsg.ParentID != "" {
-		msg.ParentID = "msg-parent-not-found"
+		msg.ParentID = config.ParentIDNotFound
 	}
 
-	err := gw.modifySendMessageTengo(rmsg, &msg, dest)
+	drop, err := gw.modifyOutMessageTengo(rmsg, &msg, dest)
 	if err != nil {
 		gw.logger.Errorf("modifySendMessageTengo: %s", err)
 	}
 
+	if drop {
+		gw.logger.Debugf("=> Tengo dropping %#v from %s (%s) to %s (%s)", msg, msg.Account, rmsg.Channel, dest.Account, channel.Name)
+		return "", nil
+	}
+
+	if debugSendMessage != "" {
+		gw.logger.Debug(debugSendMessage)
+	}
 	// if we are using mattermost plugin account, send messages to MattermostPlugin channel
 	// that can be picked up by the mattermost matterbridge plugin
 	if dest.Account == "mattermost.plugin" {
 		gw.Router.MattermostPlugin <- msg
 	}
+
+	defer func(t time.Time) {
+		gw.logger.Debugf("=> Send from %s (%s) to %s (%s) took %s", msg.Account, rmsg.Channel, dest.Account, channel.Name, time.Since(t))
+	}(time.Now())
 
 	mID, err := dest.Send(msg)
 	if err != nil {
@@ -506,7 +539,7 @@ func getProtocol(msg *config.Message) string {
 	return p[0]
 }
 
-func modifyMessageTengo(filename string, msg *config.Message) error {
+func modifyInMessageTengo(filename string, msg *config.Message) error {
 	if filename == "" {
 		return nil
 	}
@@ -518,6 +551,7 @@ func modifyMessageTengo(filename string, msg *config.Message) error {
 	s.SetImports(stdlib.GetModuleMap(stdlib.AllModuleNames()...))
 	_ = s.Add("msgText", msg.Text)
 	_ = s.Add("msgUsername", msg.Username)
+	_ = s.Add("msgUserID", msg.UserID)
 	_ = s.Add("msgAccount", msg.Account)
 	_ = s.Add("msgChannel", msg.Channel)
 	c, err := s.Compile()
@@ -546,6 +580,7 @@ func (gw *Gateway) modifyUsernameTengo(msg *config.Message, br *bridge.Bridge) (
 	_ = s.Add("result", "")
 	_ = s.Add("msgText", msg.Text)
 	_ = s.Add("msgUsername", msg.Username)
+	_ = s.Add("msgUserID", msg.UserID)
 	_ = s.Add("nick", msg.Username)
 	_ = s.Add("msgAccount", msg.Account)
 	_ = s.Add("msgChannel", msg.Channel)
@@ -565,22 +600,28 @@ func (gw *Gateway) modifyUsernameTengo(msg *config.Message, br *bridge.Bridge) (
 	return c.Get("result").String(), nil
 }
 
-func (gw *Gateway) modifySendMessageTengo(origmsg *config.Message, msg *config.Message, br *bridge.Bridge) error {
+func (gw *Gateway) modifyOutMessageTengo(origmsg *config.Message, msg *config.Message, br *bridge.Bridge) (bool, error) {
 	filename := gw.BridgeValues().Tengo.OutMessage
-	var res []byte
-	var err error
+	var (
+		res  []byte
+		err  error
+		drop bool
+	)
+
 	if filename == "" {
 		res, err = internal.Asset("tengo/outmessage.tengo")
 		if err != nil {
-			return err
+			return drop, err
 		}
 	} else {
 		res, err = ioutil.ReadFile(filename)
 		if err != nil {
-			return err
+			return drop, err
 		}
 	}
+
 	s := tengo.NewScript(res)
+
 	s.SetImports(stdlib.GetModuleMap(stdlib.AllModuleNames()...))
 	_ = s.Add("inAccount", origmsg.Account)
 	_ = s.Add("inProtocol", origmsg.Protocol)
@@ -594,14 +635,20 @@ func (gw *Gateway) modifySendMessageTengo(origmsg *config.Message, msg *config.M
 	_ = s.Add("outEvent", msg.Event)
 	_ = s.Add("msgText", msg.Text)
 	_ = s.Add("msgUsername", msg.Username)
+	_ = s.Add("msgUserID", msg.UserID)
+	_ = s.Add("msgDrop", drop)
 	c, err := s.Compile()
 	if err != nil {
-		return err
+		return drop, err
 	}
+
 	if err := c.Run(); err != nil {
-		return err
+		return drop, err
 	}
+
+	drop = c.Get("msgDrop").Bool()
 	msg.Text = c.Get("msgText").String()
 	msg.Username = c.Get("msgUsername").String()
-	return nil
+
+	return drop, nil
 }

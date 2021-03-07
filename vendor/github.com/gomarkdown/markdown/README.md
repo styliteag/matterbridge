@@ -6,11 +6,7 @@ Package `github.com/gomarkdown/markdown` is a very fast Go library for parsing [
 
 It's fast and supports common extensions.
 
-## Installation
-
-    go get -u github.com/gomarkdown/markdown
-
-API Docs:
+## API Docs:
 
 - https://godoc.org/github.com/gomarkdown/markdown : top level package
 - https://godoc.org/github.com/gomarkdown/markdown/ast : defines abstract syntax tree of parsed markdown document
@@ -113,7 +109,7 @@ opts := html.RendererOptions{
 }
 renderer := html.NewRenderer(opts)
 md := "test\n```\nthis code block will be dropped from output\n```\ntext"
-html := markdown.ToHTML([]byte(s), nil, renderer)
+html := markdown.ToHTML([]byte(md), nil, renderer)
 ````
 
 ## Sanitize untrusted content

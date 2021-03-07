@@ -303,10 +303,10 @@ func walk(node *html.Node, w io.Writer, nest int, option *Option) {
 				walk(c, &buf, 1, option)
 				if lines := strings.Split(strings.TrimSpace(buf.String()), "\n"); len(lines) > 0 {
 					for i, l := range lines {
-						if i > 0 || nest > 0 {
+						if i > 0 {
 							fmt.Fprint(w, "\n")
 						}
-						fmt.Fprint(w, strings.Repeat("    ", nest)+strings.TrimSpace(l))
+						fmt.Fprint(w, strings.Repeat("    ", nest)+l)
 					}
 					fmt.Fprint(w, "\n")
 				}
@@ -346,6 +346,22 @@ func walk(node *html.Node, w io.Writer, nest int, option *Option) {
 					fmt.Fprint(w, "\n\n")
 				}
 			default:
+				if option == nil || option.CustomRules == nil {
+					walk(c, w, nest, option)
+					break
+				}
+
+				foundCustom := false
+				for _, cr := range option.CustomRules {
+					if tag, customWalk := cr.Rule(walk); strings.ToLower(c.Data) == tag {
+						customWalk(c, w, nest, option)
+						foundCustom = true
+					}
+				}
+
+				if foundCustom {
+					break
+				}
 				walk(c, w, nest, option)
 			}
 		default:
@@ -354,11 +370,27 @@ func walk(node *html.Node, w io.Writer, nest int, option *Option) {
 	}
 }
 
+// WalkFunc type is an signature for functions traversing HTML nodes
+type WalkFunc func(node *html.Node, w io.Writer, nest int, option *Option)
+
+// CustomRule is an interface to define custom conversion rules
+//
+// Rule method accepts `next WalkFunc` as an argument, which `customRule` should call
+// to let walk function continue parsing the content inside the HTML tag.
+// It returns a tagName to indicate what HTML element this `customRule` handles and the `customRule`
+// function itself, where conversion logic should reside.
+//
+// See example TestRule implementation in godown_test.go
+type CustomRule interface {
+	Rule(next WalkFunc) (tagName string, customRule WalkFunc)
+}
+
 // Option is optional information for Convert.
 type Option struct {
-	GuessLang func(string) (string, error)
-	Script    bool
-	Style     bool
+	GuessLang   func(string) (string, error)
+	Script      bool
+	Style       bool
+	CustomRules []CustomRule
 }
 
 // Convert convert HTML to Markdown. Read HTML from r and write to w.

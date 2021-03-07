@@ -2,13 +2,13 @@ package bdiscord
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
 
 	"github.com/42wim/matterbridge/bridge"
 	"github.com/42wim/matterbridge/bridge/config"
+	"github.com/42wim/matterbridge/bridge/discord/transmitter"
 	"github.com/42wim/matterbridge/bridge/helper"
 	"github.com/matterbridge/discordgo"
 )
@@ -20,12 +20,9 @@ type Bdiscord struct {
 
 	c *discordgo.Session
 
-	nick            string
-	userID          string
-	guildID         string
-	webhookID       string
-	webhookToken    string
-	canEditWebhooks bool
+	nick    string
+	userID  string
+	guildID string
 
 	channelsMutex  sync.RWMutex
 	channels       []*discordgo.Channel
@@ -34,8 +31,10 @@ type Bdiscord struct {
 	membersMutex  sync.RWMutex
 	userMemberMap map[string]*discordgo.Member
 	nickMemberMap map[string]*discordgo.Member
-	webhookCache  map[string]string
-	webhookMutex  sync.RWMutex
+
+	// Webhook specific logic
+	useAutoWebhooks bool
+	transmitter     *transmitter.Transmitter
 }
 
 func New(cfg *bridge.Config) bridge.Bridger {
@@ -43,24 +42,18 @@ func New(cfg *bridge.Config) bridge.Bridger {
 	b.userMemberMap = make(map[string]*discordgo.Member)
 	b.nickMemberMap = make(map[string]*discordgo.Member)
 	b.channelInfoMap = make(map[string]*config.ChannelInfo)
-	b.webhookCache = make(map[string]string)
-	if b.GetString("WebhookURL") != "" {
-		b.Log.Debug("Configuring Discord Incoming Webhook")
-		b.webhookID, b.webhookToken = b.splitURL(b.GetString("WebhookURL"))
+
+	b.useAutoWebhooks = b.GetBool("AutoWebhooks")
+	if b.useAutoWebhooks {
+		b.Log.Debug("Using automatic webhooks")
 	}
 	return b
 }
 
 func (b *Bdiscord) Connect() error {
 	var err error
-	var guildFound bool
 	token := b.GetString("Token")
 	b.Log.Info("Connecting")
-	if b.GetString("WebhookURL") == "" {
-		b.Log.Info("Connecting using token")
-	} else {
-		b.Log.Info("Connecting using webhookurl (for posting) and token")
-	}
 	if !strings.HasPrefix(b.GetString("Token"), "Bot ") {
 		token = "Bot " + b.GetString("Token")
 	}
@@ -97,62 +90,107 @@ func (b *Bdiscord) Connect() error {
 	serverName := strings.Replace(b.GetString("Server"), "ID:", "", -1)
 	b.nick = userinfo.Username
 	b.userID = userinfo.ID
+
+	// Try and find this account's guild, and populate channels
 	b.channelsMutex.Lock()
 	for _, guild := range guilds {
-		if guild.Name == serverName || guild.ID == serverName {
-			b.channels, err = b.c.GuildChannels(guild.ID)
-			if err != nil {
-				break
-			}
-			b.guildID = guild.ID
-			guildFound = true
+		// Skip, if the server name does not match the visible name or the ID
+		if guild.Name != serverName && guild.ID != serverName {
+			continue
 		}
+
+		// Complain about an ambiguous Server setting. Two Discord servers could have the same title!
+		// For IDs, practically this will never happen. It would only trigger if some server's name is also an ID.
+		if b.guildID != "" {
+			return fmt.Errorf("found multiple Discord servers with the same name %#v, expected to see only one", serverName)
+		}
+
+		// Getting this guild's channel could result in a permission error
+		b.channels, err = b.c.GuildChannels(guild.ID)
+		if err != nil {
+			return fmt.Errorf("could not get %#v's channels: %w", b.GetString("Server"), err)
+		}
+
+		b.guildID = guild.ID
 	}
 	b.channelsMutex.Unlock()
-	if !guildFound {
-		msg := fmt.Sprintf("Server \"%s\" not found", b.GetString("Server"))
-		err = errors.New(msg)
-		b.Log.Error(msg)
-		b.Log.Info("Possible values:")
+
+	// If we couldn't find a guild, we print extra debug information and return a nice error
+	if b.guildID == "" {
+		err = fmt.Errorf("could not find Discord server %#v", b.GetString("Server"))
+		b.Log.Error(err.Error())
+
+		// Print all of the possible server values
+		b.Log.Info("Possible server values:")
 		for _, guild := range guilds {
-			b.Log.Infof("Server=\"%s\" # Server name", guild.Name)
-			b.Log.Infof("Server=\"%s\" # Server ID", guild.ID)
+			b.Log.Infof("\t- Server=%#v # by name", guild.Name)
+			b.Log.Infof("\t- Server=%#v # by ID", guild.ID)
 		}
-	}
-	if err != nil {
+
+		// If there are no results, we should say that
+		if len(guilds) == 0 {
+			b.Log.Info("\t- (none found)")
+		}
+
 		return err
 	}
 
-	b.channelsMutex.RLock()
-	if b.GetString("WebhookURL") == "" {
-		for _, channel := range b.channels {
-			b.Log.Debugf("found channel %#v", channel)
-		}
-	} else {
-		manageWebhooks := discordgo.PermissionManageWebhooks
-		var channelsDenied []string
-		for _, info := range b.Channels {
-			id := b.getChannelID(info.Name) // note(qaisjp): this readlocks channelsMutex
-			b.Log.Debugf("Verifying PermissionManageWebhooks for %s with ID %s", info.ID, id)
+	// Legacy note: WebhookURL used to have an actual webhook URL that we would edit,
+	// but we stopped doing that due to Discord making rate limits more aggressive.
+	//
+	// Even older: the same WebhookURL used to be used by every channel, which is usually unexpected.
+	// This is no longer possible.
+	if b.GetString("WebhookURL") != "" {
+		message := "The global WebhookURL setting has been removed. "
+		message += "You can get similar \"webhook editing\" behaviour by replacing this line with `AutoWebhooks=true`. "
+		message += "If you rely on the old-OLD (non-editing) behaviour, can move the WebhookURL to specific channel sections."
+		b.Log.Errorln(message)
+		return fmt.Errorf("use of removed WebhookURL setting")
+	}
 
-			perms, permsErr := b.c.UserChannelPermissions(userinfo.ID, id)
-			if permsErr != nil {
-				b.Log.Warnf("Failed to check PermissionManageWebhooks in channel \"%s\": %s", info.Name, permsErr.Error())
-			} else if perms&manageWebhooks == manageWebhooks {
-				continue
+	if b.GetInt("debuglevel") > 0 {
+		b.Log.Debug("enabling even more discord debug")
+		b.c.Debug = true
+	}
+
+	// Initialise webhook management
+	b.transmitter = transmitter.New(b.c, b.guildID, "matterbridge", b.useAutoWebhooks)
+	b.transmitter.Log = b.Log
+
+	var webhookChannelIDs []string
+	for _, channel := range b.Channels {
+		channelID := b.getChannelID(channel.Name) // note(qaisjp): this readlocks channelsMutex
+
+		// If a WebhookURL was not explicitly provided for this channel,
+		// there are two options: just a regular bot message (ugly) or this is should be webhook sent
+		if channel.Options.WebhookURL == "" {
+			// If it should be webhook sent, we should enforce this via the transmitter
+			if b.useAutoWebhooks {
+				webhookChannelIDs = append(webhookChannelIDs, channelID)
 			}
-			channelsDenied = append(channelsDenied, fmt.Sprintf("%#v", info.Name))
+			continue
 		}
 
-		b.canEditWebhooks = len(channelsDenied) == 0
-		if b.canEditWebhooks {
-			b.Log.Info("Can manage webhooks; will edit channel for global webhook on send")
-		} else {
-			b.Log.Warn("Can't manage webhooks; won't edit channel for global webhook on send")
-			b.Log.Warn("Can't manage webhooks in channels: ", strings.Join(channelsDenied, ", "))
+		whID, whToken, ok := b.splitURL(channel.Options.WebhookURL)
+		if !ok {
+			return fmt.Errorf("failed to parse WebhookURL %#v for channel %#v", channel.Options.WebhookURL, channel.ID)
+		}
+
+		b.transmitter.AddWebhook(channelID, &discordgo.Webhook{
+			ID:        whID,
+			Token:     whToken,
+			GuildID:   b.guildID,
+			ChannelID: channelID,
+		})
+	}
+
+	if b.useAutoWebhooks {
+		err = b.transmitter.RefreshGuildWebhooks(webhookChannelIDs)
+		if err != nil {
+			b.Log.WithError(err).Println("transmitter could not refresh guild webhooks")
+			return err
 		}
 	}
-	b.channelsMutex.RUnlock()
 
 	// Obtaining guild members and initializing nickname mapping.
 	b.membersMutex.Lock()
@@ -191,8 +229,6 @@ func (b *Bdiscord) JoinChannel(channel config.ChannelInfo) error {
 func (b *Bdiscord) Send(msg config.Message) (string, error) {
 	b.Log.Debugf("=> Receiving %#v", msg)
 
-	origMsgID := msg.ID
-
 	channelID := b.getChannelID(msg.Channel)
 	if channelID == "" {
 		return "", fmt.Errorf("Could not find channelID for %v", msg.Channel)
@@ -211,79 +247,23 @@ func (b *Bdiscord) Send(msg config.Message) (string, error) {
 		msg.Text = "_" + msg.Text + "_"
 	}
 
-	// use initial webhook configured for the entire Discord account
-	isGlobalWebhook := true
-	wID := b.webhookID
-	wToken := b.webhookToken
-
-	// check if have a channel specific webhook
-	b.channelsMutex.RLock()
-	if ci, ok := b.channelInfoMap[msg.Channel+b.Account]; ok {
-		if ci.Options.WebhookURL != "" {
-			wID, wToken = b.splitURL(ci.Options.WebhookURL)
-			isGlobalWebhook = false
-		}
+	// Handle prefix hint for unthreaded messages.
+	if msg.ParentNotFound() {
+		msg.ParentID = ""
+		msg.Text = fmt.Sprintf("[thread]: %s", msg.Text)
 	}
-	b.channelsMutex.RUnlock()
 
 	// Use webhook to send the message
-	if wID != "" && msg.Event != config.EventMsgDelete {
-		// skip events
-		if msg.Event != "" && msg.Event != config.EventUserAction && msg.Event != config.EventJoinLeave && msg.Event != config.EventTopicChange {
-			return "", nil
-		}
-
-		// If we are editing a message, delete the old message
-		if msg.ID != "" {
-			msg.ID = b.getCacheID(msg.ID)
-			b.Log.Debugf("Deleting edited webhook message")
-			err := b.c.ChannelMessageDelete(channelID, msg.ID)
-			if err != nil {
-				b.Log.Errorf("Could not delete edited webhook message: %s", err)
-			}
-		}
-
-		b.Log.Debugf("Broadcasting using Webhook")
-
-		// skip empty messages
-		if msg.Text == "" && (msg.Extra == nil || len(msg.Extra["file"]) == 0) {
-			b.Log.Debugf("Skipping empty message %#v", msg)
-			return "", nil
-		}
-
-		msg.Text = helper.ClipMessage(msg.Text, MessageLength)
-		msg.Text = b.replaceUserMentions(msg.Text)
-		// discord username must be [0..32] max
-		if len(msg.Username) > 32 {
-			msg.Username = msg.Username[0:32]
-		}
-		// if we have a global webhook for this Discord account, and permission
-		// to modify webhooks (previously verified), then set its channel to
-		// the message channel before using it
-		// TODO: this isn't necessary if the last message from this webhook was
-		// sent to the current channel
-		if isGlobalWebhook && b.canEditWebhooks {
-			b.Log.Debugf("Setting webhook channel to \"%s\"", msg.Channel)
-			_, err := b.c.WebhookEdit(wID, "", "", channelID)
-			if err != nil {
-				b.Log.Errorf("Could not set webhook channel: %s", err)
-				return "", err
-			}
-		}
-		b.Log.Debugf("Processing webhook sending for message %#v", msg)
-		msg, err := b.webhookSend(&msg, wID, wToken)
-		if err != nil {
-			b.Log.Errorf("Could not broadcast via webook for message %#v: %s", msg, err)
-			return "", err
-		}
-		if msg == nil {
-			return "", nil
-		}
-
-		b.updateCacheID(origMsgID, msg.ID)
-		return msg.ID, nil
+	useWebhooks := b.shouldMessageUseWebhooks(&msg)
+	if useWebhooks && msg.Event != config.EventMsgDelete && msg.ParentID == "" {
+		return b.handleEventWebhook(&msg, channelID)
 	}
 
+	return b.handleEventBotUser(&msg, channelID)
+}
+
+// handleEventDirect handles events via the bot user
+func (b *Bdiscord) handleEventBotUser(msg *config.Message, channelID string) (string, error) {
 	b.Log.Debugf("Broadcasting using token (API)")
 
 	// Delete message
@@ -291,14 +271,13 @@ func (b *Bdiscord) Send(msg config.Message) (string, error) {
 		if msg.ID == "" {
 			return "", nil
 		}
-		msg.ID = b.getCacheID(msg.ID)
 		err := b.c.ChannelMessageDelete(channelID, msg.ID)
 		return "", err
 	}
 
 	// Upload a file if it exists
 	if msg.Extra != nil {
-		for _, rmsg := range helper.HandleExtra(&msg, b.General) {
+		for _, rmsg := range helper.HandleExtra(msg, b.General) {
 			rmsg.Text = helper.ClipMessage(rmsg.Text, MessageLength)
 			if _, err := b.c.ChannelMessageSend(channelID, rmsg.Username+rmsg.Text); err != nil {
 				b.Log.Errorf("Could not send message %#v: %s", rmsg, err)
@@ -306,7 +285,7 @@ func (b *Bdiscord) Send(msg config.Message) (string, error) {
 		}
 		// check if we have files to upload (from slack, telegram or mattermost)
 		if len(msg.Extra["file"]) > 0 {
-			return b.handleUploadFile(&msg, channelID)
+			return b.handleUploadFile(msg, channelID)
 		}
 	}
 
@@ -319,52 +298,25 @@ func (b *Bdiscord) Send(msg config.Message) (string, error) {
 		return msg.ID, err
 	}
 
+	m := discordgo.MessageSend{
+		Content: msg.Username + msg.Text,
+	}
+
+	if msg.ParentValid() {
+		m.Reference = &discordgo.MessageReference{
+			MessageID: msg.ParentID,
+			ChannelID: channelID,
+			GuildID:   b.guildID,
+		}
+	}
+
 	// Post normal message
-	res, err := b.c.ChannelMessageSend(channelID, msg.Username+msg.Text)
+	res, err := b.c.ChannelMessageSendComplex(channelID, &m)
 	if err != nil {
 		return "", err
 	}
+
 	return res.ID, nil
-}
-
-// useWebhook returns true if we have a webhook defined somewhere
-func (b *Bdiscord) useWebhook() bool {
-	if b.GetString("WebhookURL") != "" {
-		return true
-	}
-
-	b.channelsMutex.RLock()
-	defer b.channelsMutex.RUnlock()
-
-	for _, channel := range b.channelInfoMap {
-		if channel.Options.WebhookURL != "" {
-			return true
-		}
-	}
-	return false
-}
-
-// isWebhookID returns true if the specified id is used in a defined webhook
-func (b *Bdiscord) isWebhookID(id string) bool {
-	if b.GetString("WebhookURL") != "" {
-		wID, _ := b.splitURL(b.GetString("WebhookURL"))
-		if wID == id {
-			return true
-		}
-	}
-
-	b.channelsMutex.RLock()
-	defer b.channelsMutex.RUnlock()
-
-	for _, channel := range b.channelInfoMap {
-		if channel.Options.WebhookURL != "" {
-			wID, _ := b.splitURL(channel.Options.WebhookURL)
-			if wID == id {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // handleUploadFile handles native upload of files
@@ -387,84 +339,4 @@ func (b *Bdiscord) handleUploadFile(msg *config.Message, channelID string) (stri
 		}
 	}
 	return "", nil
-}
-
-// webhookSend send one or more message via webhook, taking care of file
-// uploads (from slack, telegram or mattermost).
-// Returns messageID and error.
-func (b *Bdiscord) webhookSend(msg *config.Message, webhookID, token string) (*discordgo.Message, error) {
-	var (
-		res *discordgo.Message
-		err error
-	)
-
-	// If avatar is unset, check if UseLocalAvatar contains the message's
-	// account or protocol, and if so, try to find a local avatar
-	if msg.Avatar == "" {
-		for _, val := range b.GetStringSlice("UseLocalAvatar") {
-			if msg.Protocol == val || msg.Account == val {
-				if avatar := b.findAvatar(msg); avatar != "" {
-					msg.Avatar = avatar
-				}
-				break
-			}
-		}
-	}
-
-	// WebhookParams can have either `Content` or `File`.
-
-	// We can't send empty messages.
-	if msg.Text != "" {
-		res, err = b.c.WebhookExecute(
-			webhookID,
-			token,
-			true,
-			&discordgo.WebhookParams{
-				Content:   msg.Text,
-				Username:  msg.Username,
-				AvatarURL: msg.Avatar,
-			},
-		)
-		if err != nil {
-			b.Log.Errorf("Could not send text (%s) for message %#v: %s", msg.Text, msg, err)
-		}
-	}
-
-	if msg.Extra != nil {
-		for _, f := range msg.Extra["file"] {
-			fi := f.(config.FileInfo)
-			file := discordgo.File{
-				Name:        fi.Name,
-				ContentType: "",
-				Reader:      bytes.NewReader(*fi.Data),
-			}
-			content := ""
-			if msg.Text == "" {
-				content = fi.Comment
-			}
-			_, e2 := b.c.WebhookExecute(
-				webhookID,
-				token,
-				false,
-				&discordgo.WebhookParams{
-					Username:  msg.Username,
-					AvatarURL: msg.Avatar,
-					File:      &file,
-					Content:   content,
-				},
-			)
-			if e2 != nil {
-				b.Log.Errorf("Could not send file %#v for message %#v: %s", file, msg, e2)
-			}
-		}
-	}
-	return res, err
-}
-
-func (b *Bdiscord) findAvatar(m *config.Message) string {
-	member, err := b.getGuildMemberByNick(m.Username)
-	if err != nil {
-		return ""
-	}
-	return member.User.AvatarURL("")
 }

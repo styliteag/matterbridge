@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -25,7 +26,10 @@ const (
 	EventAPIConnected      = "api_connected"
 	EventUserTyping        = "user_typing"
 	EventGetChannelMembers = "get_channel_members"
+	EventNoticeIRC         = "notice_irc"
 )
+
+const ParentIDNotFound = "msg-parent-not-found"
 
 type Message struct {
 	Text      string    `json:"text"`
@@ -41,6 +45,14 @@ type Message struct {
 	Timestamp time.Time `json:"timestamp"`
 	ID        string    `json:"id"`
 	Extra     map[string][]interface{}
+}
+
+func (m Message) ParentNotFound() bool {
+	return m.ParentID == ParentIDNotFound
+}
+
+func (m Message) ParentValid() bool {
+	return m.ParentID != "" && !m.ParentNotFound()
 }
 
 type FileInfo struct {
@@ -93,11 +105,13 @@ type Protocol struct {
 	JoinDelay              string // all protocols
 	Label                  string // all protocols
 	Login                  string // mattermost, matrix
+	LogFile                string // general
 	MediaDownloadBlackList []string
 	MediaDownloadPath      string // Basically MediaServerUpload, but instead of uploading it, just write it to a file on the same server.
 	MediaDownloadSize      int    // all protocols
 	MediaServerDownload    string
 	MediaServerUpload      string
+	MediaConvertTgs        string     // telegram
 	MediaConvertWebPToPNG  bool       // telegram
 	MessageDelay           int        // IRC, time in millisecond to wait between messages
 	MessageFormat          string     // telegram
@@ -114,7 +128,7 @@ type Protocol struct {
 	NicksPerRow            int        // mattermost, slack
 	NoHomeServerSuffix     bool       // matrix
 	NoSendJoinPart         bool       // all protocols
-	NoTLS                  bool       // mattermost
+	NoTLS                  bool       // mattermost, xmpp
 	Password               string     // IRC,mattermost,XMPP,matrix
 	PrefixMessagesWithNick bool       // mattemost, slack
 	PreserveThreading      bool       // slack
@@ -151,7 +165,7 @@ type Protocol struct {
 	UseTLS                 bool       // IRC
 	UseDiscriminator       bool       // discord
 	UseFirstName           bool       // telegram
-	UseUserName            bool       // discord
+	UseUserName            bool       // discord, matrix
 	UseInsecureURL         bool       // telegram
 	VerboseJoinPart        bool       // IRC
 	WebhookBindAddress     string     // mattermost, slack
@@ -210,6 +224,7 @@ type BridgeValues struct {
 	WhatsApp           map[string]Protocol // TODO is this struct used? Search for "SlackLegacy" for example didn't return any results
 	Zulip              map[string]Protocol
 	Keybase            map[string]Protocol
+	Mumble             map[string]Protocol
 	General            Protocol
 	Tengo              Tengo
 	Gateway            []Gateway
@@ -247,6 +262,15 @@ func NewConfig(rootLogger *logrus.Logger, cfgfile string) Config {
 
 	cfgtype := detectConfigType(cfgfile)
 	mycfg := newConfigFromString(logger, input, cfgtype)
+	if mycfg.cv.General.LogFile != "" {
+		logfile, err := os.OpenFile(mycfg.cv.General.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		if err == nil {
+			logger.Info("Opening log file ", mycfg.cv.General.LogFile)
+			rootLogger.Out = logfile
+		} else {
+			logger.Warn("Failed to open ", mycfg.cv.General.LogFile)
+		}
+	}
 	if mycfg.cv.General.MediaDownloadSize == 0 {
 		mycfg.cv.General.MediaDownloadSize = 1000000
 	}

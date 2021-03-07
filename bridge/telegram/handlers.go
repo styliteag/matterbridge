@@ -181,13 +181,15 @@ func (b *Btelegram) handleRecv(updates <-chan tgbotapi.Update) {
 // sends a EVENT_AVATAR_DOWNLOAD message to the gateway if successful.
 // logs an error message if it fails
 func (b *Btelegram) handleDownloadAvatar(userid int, channel string) {
-	rmsg := config.Message{Username: "system",
-		Text:    "avatar",
-		Channel: channel,
-		Account: b.Account,
-		UserID:  strconv.Itoa(userid),
-		Event:   config.EventAvatarDownload,
-		Extra:   make(map[string][]interface{})}
+	rmsg := config.Message{
+		Username: "system",
+		Text:     "avatar",
+		Channel:  channel,
+		Account:  b.Account,
+		UserID:   strconv.Itoa(userid),
+		Event:    config.EventAvatarDownload,
+		Extra:    make(map[string][]interface{}),
+	}
 
 	if _, ok := b.avatarMap[strconv.Itoa(userid)]; !ok {
 		photos, err := b.c.GetUserProfilePhotos(tgbotapi.UserProfilePhotosConfig{UserID: userid, Limit: 1})
@@ -213,6 +215,46 @@ func (b *Btelegram) handleDownloadAvatar(userid int, channel string) {
 			}
 			helper.HandleDownloadData(b.Log, &rmsg, name, rmsg.Text, "", data, b.General)
 			b.Remote <- rmsg
+		}
+	}
+}
+
+func (b *Btelegram) maybeConvertTgs(name *string, data *[]byte) {
+	var format string
+	switch b.GetString("MediaConvertTgs") {
+	case FormatWebp:
+		b.Log.Debugf("Tgs to WebP conversion enabled, converting %v", name)
+		format = FormatWebp
+	case FormatPng:
+		// The WebP to PNG converter can't handle animated webp files yet,
+		// and I'm not going to write a path for x/image/webp.
+		// The error message would be:
+		//     conversion failed: webp: non-Alpha VP8X is not implemented
+		// So instead, we tell lottie to directly go to PNG.
+		b.Log.Debugf("Tgs to PNG conversion enabled, converting %v", name)
+		format = FormatPng
+	default:
+		// Otherwise, no conversion was requested. Trying to run the usual webp
+		// converter would fail, because '.tgs.webp' is actually a gzipped JSON
+		// file, and has nothing to do with WebP.
+		return
+	}
+	err := helper.ConvertTgsToX(data, format, b.Log)
+	if err != nil {
+		b.Log.Errorf("conversion failed: %v", err)
+	} else {
+		*name = strings.Replace(*name, "tgs.webp", format, 1)
+	}
+}
+
+func (b *Btelegram) maybeConvertWebp(name *string, data *[]byte) {
+	if b.GetBool("MediaConvertWebPToPNG") {
+		b.Log.Debugf("WebP to PNG conversion enabled, converting %v", name)
+		err := helper.ConvertWebPToPNG(data)
+		if err != nil {
+			b.Log.Errorf("conversion failed: %v", err)
+		} else {
+			*name = strings.Replace(*name, ".webp", ".png", 1)
 		}
 	}
 }
@@ -264,15 +306,18 @@ func (b *Btelegram) handleDownload(rmsg *config.Message, message *tgbotapi.Messa
 	if err != nil {
 		return err
 	}
-	if strings.HasSuffix(name, ".webp") && b.GetBool("MediaConvertWebPToPNG") {
-		b.Log.Debugf("WebP to PNG conversion enabled, converting %s", name)
-		err := helper.ConvertWebPToPNG(data)
-		if err != nil {
-			b.Log.Errorf("conversion failed: %s", err)
-		} else {
-			name = strings.Replace(name, ".webp", ".png", 1)
-		}
+
+	if strings.HasSuffix(name, ".tgs.webp") {
+		b.maybeConvertTgs(&name, data)
+	} else if strings.HasSuffix(name, ".webp") {
+		b.maybeConvertWebp(&name, data)
 	}
+
+	// rename .oga to .ogg  https://github.com/42wim/matterbridge/issues/906#issuecomment-741793512
+	if strings.HasSuffix(name, ".oga") && message.Audio != nil {
+		name = strings.Replace(name, ".oga", ".ogg", 1)
+	}
+
 	helper.HandleDownloadData(b.Log, rmsg, name, message.Caption, "", data, b.General)
 	return nil
 }
@@ -346,7 +391,7 @@ func (b *Btelegram) handleUploadFile(msg *config.Message, chatid int64) string {
 			Name:  fi.Name,
 			Bytes: *fi.Data,
 		}
-		re := regexp.MustCompile(".(jpg|png)$")
+		re := regexp.MustCompile(".(jpg|jpe|png)$")
 		if re.MatchString(fi.Name) {
 			c = tgbotapi.NewPhotoUpload(chatid, file)
 		} else {
@@ -370,7 +415,7 @@ func (b *Btelegram) handleQuote(message, quoteNick, quoteMessage string) string 
 	if format == "" {
 		format = "{MESSAGE} (re @{QUOTENICK}: {QUOTEMESSAGE})"
 	}
-	quoteMessagelength := len(quoteMessage)
+	quoteMessagelength := len([]rune(quoteMessage))
 	if b.GetInt("QuoteLengthLimit") != 0 && quoteMessagelength >= b.GetInt("QuoteLengthLimit") {
 		runes := []rune(quoteMessage)
 		quoteMessage = string(runes[0:b.GetInt("QuoteLengthLimit")])

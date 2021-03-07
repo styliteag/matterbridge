@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"image/png"
 	"io"
+	"io/ioutil"
 	"net/http"
+	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -46,6 +49,30 @@ func DownloadFileAuth(url string, auth string) (*[]byte, error) {
 	io.Copy(&buf, resp.Body)
 	data := buf.Bytes()
 	return &data, nil
+}
+
+// DownloadFileAuthRocket downloads the given URL using the specified Rocket user ID and authentication token.
+func DownloadFileAuthRocket(url, token, userID string) (*[]byte, error) {
+	var buf bytes.Buffer
+	client := &http.Client{
+		Timeout: time.Second * 5,
+	}
+	req, err := http.NewRequest("GET", url, nil)
+
+	req.Header.Add("X-Auth-Token", token)
+	req.Header.Add("X-User-Id", userID)
+
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	_, err = io.Copy(&buf, resp.Body)
+	data := buf.Bytes()
+	return &data, err
 }
 
 // GetSubLines splits messages in newline-delimited lines. If maxLineLength is
@@ -180,7 +207,7 @@ func ClipMessage(text string, length int) string {
 
 // ParseMarkdown takes in an input string as markdown and parses it to html
 func ParseMarkdown(input string) string {
-	extensions := parser.HardLineBreak | parser.NoIntraEmphasis
+	extensions := parser.HardLineBreak | parser.NoIntraEmphasis | parser.FencedCode
 	markdownParser := parser.NewWithExtensions(extensions)
 	renderer := html.NewRenderer(html.RendererOptions{
 		Flags: 0,
@@ -192,7 +219,7 @@ func ParseMarkdown(input string) string {
 	return res
 }
 
-// ConvertWebPToPNG convert input data (which should be WebP format to PNG format)
+// ConvertWebPToPNG converts input data (which should be WebP format) to PNG format
 func ConvertWebPToPNG(data *[]byte) error {
 	r := bytes.NewReader(*data)
 	m, err := webp.Decode(r)
@@ -205,5 +232,51 @@ func ConvertWebPToPNG(data *[]byte) error {
 		return err
 	}
 	*data = w.Bytes()
+	return nil
+}
+
+// CanConvertTgsToX Checks whether the external command necessary for ConvertTgsToX works.
+func CanConvertTgsToX() error {
+	// We depend on the fact that `lottie_convert.py --help` has exit status 0.
+	// Hyrum's Law predicted this, and Murphy's Law predicts that this will break eventually.
+	// However, there is no alternative like `lottie_convert.py --is-properly-installed`
+	cmd := exec.Command("lottie_convert.py", "--help")
+	return cmd.Run()
+}
+
+// ConvertTgsToWebP convert input data (which should be tgs format) to WebP format
+// This relies on an external command, which is ugly, but works.
+func ConvertTgsToX(data *[]byte, outputFormat string, logger *logrus.Entry) error {
+	// lottie can't handle input from a pipe, so write to a temporary file:
+	tmpFile, err := ioutil.TempFile(os.TempDir(), "matterbridge-lottie-*.tgs")
+	if err != nil {
+		return err
+	}
+	tmpFileName := tmpFile.Name()
+	defer func() {
+		if removeErr := os.Remove(tmpFileName); removeErr != nil {
+			logger.Errorf("Could not delete temporary file %s: %v", tmpFileName, removeErr)
+		}
+	}()
+
+	if _, writeErr := tmpFile.Write(*data); writeErr != nil {
+		return writeErr
+	}
+	// Must close before calling lottie to avoid data races:
+	if closeErr := tmpFile.Close(); closeErr != nil {
+		return closeErr
+	}
+
+	// Call lottie to transform:
+	cmd := exec.Command("lottie_convert.py", "--input-format", "lottie", "--output-format", outputFormat, tmpFileName, "/dev/stdout")
+	cmd.Stderr = nil
+	// NB: lottie writes progress into to stderr in all cases.
+	stdout, stderr := cmd.Output()
+	if stderr != nil {
+		// 'stderr' already contains some parts of Stderr, because it was set to 'nil'.
+		return stderr
+	}
+
+	*data = stdout
 	return nil
 }

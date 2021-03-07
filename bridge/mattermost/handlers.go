@@ -4,7 +4,7 @@ import (
 	"github.com/42wim/matterbridge/bridge/config"
 	"github.com/42wim/matterbridge/bridge/helper"
 	"github.com/42wim/matterbridge/matterclient"
-	"github.com/mattermost/mattermost-server/model"
+	"github.com/mattermost/mattermost-server/v5/model"
 )
 
 // handleDownloadAvatar downloads the avatar of userid from channel
@@ -114,7 +114,7 @@ func (b *Bmattermost) handleMatterClient(messages chan *config.Message) {
 			Channel:  message.Channel,
 			Text:     message.Text,
 			ID:       message.Post.Id,
-			ParentID: message.Post.ParentId,
+			ParentID: message.Post.RootId, // ParentID is obsolete with mattermost
 			Extra:    make(map[string][]interface{}),
 		}
 

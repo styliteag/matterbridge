@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"hash/crc32"
+	"io/ioutil"
 	"net"
 	"sort"
 	"strconv"
@@ -29,6 +30,7 @@ type Birc struct {
 	Local                                     chan config.Message // local queue for flood control
 	FirstConnection, authDone                 bool
 	MessageDelay, MessageQueue, MessageLength int
+	channels                                  map[string]bool
 
 	*bridge.Config
 }
@@ -39,6 +41,8 @@ func New(cfg *bridge.Config) bridge.Bridger {
 	b.Nick = b.GetString("Nick")
 	b.names = make(map[string][]string)
 	b.connected = make(chan error)
+	b.channels = make(map[string]bool)
+
 	if b.GetInt("MessageDelay") == 0 {
 		b.MessageDelay = 1300
 	} else {
@@ -111,6 +115,7 @@ func (b *Birc) Disconnect() error {
 }
 
 func (b *Birc) JoinChannel(channel config.ChannelInfo) error {
+	b.channels[channel.Name] = true
 	// need to check if we have nickserv auth done before joining channels
 	for {
 		if b.authDone {
@@ -200,22 +205,58 @@ func (b *Birc) doConnect() {
 	}
 }
 
+// Sanitize nicks for RELAYMSG: replace IRC characters with special meanings with "-"
+func sanitizeNick(nick string) string {
+	sanitize := func(r rune) rune {
+		if strings.ContainsRune("!+%@&#$:'\"?*,. ", r) {
+			return '-'
+		}
+		return r
+	}
+	return strings.Map(sanitize, nick)
+}
+
 func (b *Birc) doSend() {
 	rate := time.Millisecond * time.Duration(b.MessageDelay)
 	throttle := time.NewTicker(rate)
 	for msg := range b.Local {
 		<-throttle.C
 		username := msg.Username
-		if b.GetBool("Colornicks") && len(username) > 1 {
-			checksum := crc32.ChecksumIEEE([]byte(msg.Username))
-			colorCode := checksum%14 + 2 // quick fix - prevent white or black color codes
-			username = fmt.Sprintf("\x03%02d%s\x0F", colorCode, msg.Username)
-		}
-		if msg.Event == config.EventUserAction {
-			b.i.Cmd.Action(msg.Channel, username+msg.Text)
+		// Optional support for the proposed RELAYMSG extension, described at
+		// https://github.com/jlu5/ircv3-specifications/blob/master/extensions/relaymsg.md
+		// nolint:nestif
+		if (b.i.HasCapability("overdrivenetworks.com/relaymsg") || b.i.HasCapability("draft/relaymsg")) &&
+			b.GetBool("UseRelayMsg") {
+			username = sanitizeNick(username)
+			text := msg.Text
+
+			// Work around girc chomping leading commas on single word messages?
+			if strings.HasPrefix(text, ":") && !strings.ContainsRune(text, ' ') {
+				text = ":" + text
+			}
+
+			if msg.Event == config.EventUserAction {
+				b.i.Cmd.SendRawf("RELAYMSG %s %s :\x01ACTION %s\x01", msg.Channel, username, text) //nolint:errcheck
+			} else {
+				b.Log.Debugf("Sending RELAYMSG to channel %s: nick=%s", msg.Channel, username)
+				b.i.Cmd.SendRawf("RELAYMSG %s %s :%s", msg.Channel, username, text) //nolint:errcheck
+			}
 		} else {
-			b.Log.Debugf("Sending to channel %s", msg.Channel)
-			b.i.Cmd.Message(msg.Channel, username+msg.Text)
+			if b.GetBool("Colornicks") {
+				checksum := crc32.ChecksumIEEE([]byte(msg.Username))
+				colorCode := checksum%14 + 2 // quick fix - prevent white or black color codes
+				username = fmt.Sprintf("\x03%02d%s\x0F", colorCode, msg.Username)
+			}
+			switch msg.Event {
+			case config.EventUserAction:
+				b.i.Cmd.Action(msg.Channel, username+msg.Text)
+			case config.EventNoticeIRC:
+				b.Log.Debugf("Sending notice to channel %s", msg.Channel)
+				b.i.Cmd.Notice(msg.Channel, username+msg.Text)
+			default:
+				b.Log.Debugf("Sending to channel %s", msg.Channel)
+				b.i.Cmd.Message(msg.Channel, username+msg.Text)
+			}
 		}
 	}
 }
@@ -240,6 +281,18 @@ func (b *Birc) getClient() (*girc.Client, error) {
 		user = user[1:]
 	}
 
+	debug := ioutil.Discard
+	if b.GetInt("DebugLevel") == 2 {
+		debug = b.Log.Writer()
+	}
+
+	pingDelay, err := time.ParseDuration(b.GetString("pingdelay"))
+	if err != nil || pingDelay == 0 {
+		pingDelay = time.Minute
+	}
+
+	b.Log.Debugf("setting pingdelay to %s", pingDelay)
+
 	i := girc.New(girc.Config{
 		Server:     server,
 		ServerPass: b.GetString("Password"),
@@ -249,9 +302,11 @@ func (b *Birc) getClient() (*girc.Client, error) {
 		Name:       b.GetString("Nick"),
 		SSL:        b.GetBool("UseTLS"),
 		TLSConfig:  &tls.Config{InsecureSkipVerify: b.GetBool("SkipTLSVerify"), ServerName: server}, //nolint:gosec
-		PingDelay:  time.Minute,
+		PingDelay:  pingDelay,
 		// skip gIRC internal rate limiting, since we have our own throttling
-		AllowFlood: true,
+		AllowFlood:    true,
+		Debug:         debug,
+		SupportedCaps: map[string][]string{"overdrivenetworks.com/relaymsg": nil, "draft/relaymsg": nil},
 	})
 	return i, nil
 }
@@ -277,7 +332,7 @@ func (b *Birc) skipPrivMsg(event girc.Event) bool {
 	b.Nick = b.i.GetNick()
 
 	// freenode doesn't send 001 as first reply
-	if event.Command == "NOTICE" {
+	if event.Command == "NOTICE" && len(event.Params) != 2 {
 		return true
 	}
 	// don't forward queries to the bot
@@ -286,6 +341,15 @@ func (b *Birc) skipPrivMsg(event girc.Event) bool {
 	}
 	// don't forward message from ourself
 	if event.Source.Name == b.Nick {
+		return true
+	}
+	// don't forward messages we sent via RELAYMSG
+	if relayedNick, ok := event.Tags.Get("draft/relaymsg"); ok && relayedNick == b.Nick {
+		return true
+	}
+	// This is the old name of the cap sent in spoofed messages; I've kept this in
+	// for compatibility reasons
+	if relayedNick, ok := event.Tags.Get("relaymsg"); ok && relayedNick == b.Nick {
 		return true
 	}
 	return false

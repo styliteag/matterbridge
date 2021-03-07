@@ -128,9 +128,18 @@ func (b *Bmattermost) Send(msg config.Message) (string, error) {
 	}
 
 	// Handle prefix hint for unthreaded messages.
-	if msg.ParentID == "msg-parent-not-found" {
+	if msg.ParentNotFound() {
 		msg.ParentID = ""
 		msg.Text = fmt.Sprintf("[thread]: %s", msg.Text)
+	}
+
+	// we only can reply to the root of the thread, not to a specific ID (like discord for example does)
+	if msg.ParentID != "" {
+		post, res := b.mc.Client.GetPost(msg.ParentID, "")
+		if res.Error != nil {
+			b.Log.Errorf("getting post %s failed: %s", msg.ParentID, res.Error.DetailedError)
+		}
+		msg.ParentID = post.RootId
 	}
 
 	// Upload a file if it exists

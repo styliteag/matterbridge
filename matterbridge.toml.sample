@@ -103,6 +103,12 @@ ColorNicks=false
 #OPTIONAL (default empty)
 RunCommands=["PRIVMSG user hello","PRIVMSG chanserv something"]
 
+#PingDelay specifies how long to wait to send a ping to the irc server.
+#You can use s for second, m for minute
+#String
+#OPTIONAL (default 1m)
+PingDelay="1m"
+
 #StripMarkdown strips markdown from messages
 #OPTIONAL (default false)
 StripMarkdown=false
@@ -187,6 +193,19 @@ ShowTopicChange=false
 #OPTIONAL (default 0)
 JoinDelay=0
 
+#Use the optional RELAYMSG extension for username spoofing on IRC.
+#This requires an IRCd that supports the draft/relaymsg specification: currently this includes
+#Oragono 2.4.0+ and InspIRCd 3 with the m_relaymsg contrib module.
+#See https://github.com/42wim/matterbridge/issues/667#issuecomment-634214165 for more details.
+#Spoofed nicks will use the configured RemoteNickFormat, replacing reserved IRC characters
+#(!+%@&#$:'"?*,.) with a hyphen (-).
+#On most configurations, the RemoteNickFormat must include a separator character such as "/".
+#You should make sure that the settings here match your IRCd.
+#This option overrides ColorNicks.
+#OPTIONAL (default false)
+UseRelayMsg=false
+#RemoteNickFormat="{NICK}/{PROTOCOL}"
+
 ###################################################################
 #XMPP section
 ###################################################################
@@ -220,6 +239,10 @@ Nick="xmppbot"
 #e.g. when using selfsigned certificates
 #OPTIONAL (default false)
 SkipTLSVerify=true
+
+#Enable to use plaintext connection to your XMPP server.
+#OPTIONAL (default false)
+NoTLS=true
 
 ## RELOADABLE SETTINGS
 ## Settings below can be reloaded by editing the file
@@ -286,6 +309,11 @@ StripNick=false
 #Only works hiding/show topic changes from slack bridge for now
 #OPTIONAL (default false)
 ShowTopicChange=false
+
+#Enable sending messages using a webhook instead of regular MUC messages.
+#Only works with a prosody server using mod_slack_webhook. Does not support editing.
+#OPTIONAL (default "")
+WebhookURL="https://yourdomain/prosody/msg/someid"
 
 ###################################################################
 #mattermost section
@@ -836,10 +864,11 @@ UseUserName=false
 # UseDiscriminator appends the `#xxxx` discriminator when used with UseUserName
 UseDiscriminator=false
 
-# WebhookURL sends messages in the style of puppets.
-# This only works if you have one discord channel, if you have multiple discord channels you'll have to specify it in the gateway config
-# Example: "https://discordapp.com/api/webhooks/1234/abcd_xyzw"
-WebhookURL=""
+# AutoWebhooks automatically configures message sending in the style of puppets.
+# This is an easier alternative to manually configuring "WebhookURL" for each gateway,
+# as turning this on will automatically load or create webhooks for each channel.
+# This feature requires the "Manage Webhooks" permission (either globally or as per-channel).
+AutoWebhooks=false
 
 # EditDisable disables sending of edits to other bridges
 EditDisable=false
@@ -1221,6 +1250,9 @@ HTMLDisable=false
 ## RELOADABLE SETTINGS
 ## Settings below can be reloaded by editing the file
 
+# UseUserName shows the username instead of the server nickname
+UseUserName=false
+
 #Whether to prefix messages from other bridges to matrix with the sender's nick.
 #Useful if username overrides for incoming webhooks isn't enabled on the
 #matrix server. If you set PrefixMessagesWithNick to true, each message
@@ -1383,7 +1415,88 @@ StripNick=false
 #OPTIONAL (default false)
 ShowTopicChange=false
 
+###################################################################
+#
+# NCTalk (Nextcloud Talk)
+#
+###################################################################
 
+[nctalk.bridge]
+
+# Url of your Nextcloud server
+Server = "https://cloud.youdomain.me"
+
+# Enable to not verify the certificate on your Nextcloud server.
+# e.g. when using selfsigned certificates
+# OPTIONAL (default false)
+SkipTLSVerify=true
+
+# Username of the bot
+Login = "talkuser"
+
+# Password of the bot
+Password = "talkuserpass"
+
+# Suffix for Guest Users
+GuestSuffix = " (Guest)"
+
+###################################################################
+#
+# Mumble
+#
+###################################################################
+
+[mumble.bridge]
+
+# Host and port of your Mumble server
+Server = "mumble.yourdomain.me:64738"
+
+# Nickname to log in as
+Nick = "matterbridge"
+
+# Some servers require a password
+# OPTIONAL (default empty)
+Password = "serverpasswordhere"
+
+# User comment to set on the Mumble user, visible to other users.
+# OPTIONAL (default empty)
+UserComment="I am bridging text messages between this channel and #general on irc.yourdomain.me"
+
+# Self-signed TLS client certificate + private key used to connect to
+# Mumble.  This is required if you want to register the matterbridge
+# user on your Mumble server, so its nick becomes reserved.
+# You can generate a keypair using e.g.
+#
+#     openssl req -x509 -newkey rsa:2048 -nodes -days 10000 \
+#             -keyout mumble.key -out mumble.crt
+#
+# To actually register the matterbridege user, connect to Mumble as an
+# admin, right click on the user and click "Register".
+#
+# OPTIONAL (default empty)
+TLSClientCertificate="mumble.crt"
+TLSClientKey="mumble.key"
+
+# TLS CA certificate used to validate the Mumble server.
+# OPTIONAL (defaults to Go system CA)
+TLSCACertificate=mumble-ca.crt
+
+# Enable to not verify the certificate on your Mumble server.
+# e.g. when using selfsigned certificates
+# OPTIONAL (default false)
+SkipTLSVerify=false
+
+###################################################################
+#VK
+###################################################################
+[vk.myvk]
+#Group access token
+#See https://vk.com/dev/bots_docs
+Token="Yourtokenhere"
+
+#Group ID
+#For example in URL https://vk.com/public168963511 group ID is 168963511
+GroupID=123456789
 
 ###################################################################
 #
@@ -1525,6 +1638,8 @@ Buffer=1000
 
 #Bearer token used for authentication
 #curl -H "Authorization: Bearer token" http://localhost:4242/api/messages
+# https://github.com/vi/websocat
+# websocat -H="Authorization: Bearer token" ws://127.0.0.1:4242/api/websocket
 #OPTIONAL (no authorization if token is empty)
 Token="mytoken"
 
@@ -1548,7 +1663,8 @@ RemoteNickFormat="{NICK}"
 ## Settings below can be reloaded by editing the file
 
 #RemoteNickFormat defines how remote users appear on this bridge
-#The string "{NICK}" (case sensitive) will be replaced by the actual nick / username.
+#The string "{NICK}" (case sensitive) will be replaced by the actual nick.
+#The string "{USERID}" (case sensitive) will be replaced by the user ID.
 #The string "{BRIDGE}" (case sensitive) will be replaced by the sending bridge
 #The string "{LABEL}" (case sensitive) will be replaced by label= field of the sending bridge
 #The string "{PROTOCOL}" (case sensitive) will be replaced by the protocol used by the bridge
@@ -1604,6 +1720,14 @@ MediaDownloadBlacklist=[".html$",".htm$"]
 #OPTIONAL (default false)
 IgnoreFailureOnStart=false
 
+#LogFile defines the location of a file to write logs into, rather
+#than stdout.
+#Logging will still happen on stdout if the file cannot be open for
+#writing, or if the value is empty. Note that the log won't roll, so
+#you might want to use logrotate(8) with this feature.
+#OPTIONAL (default empty)
+LogFile="/var/log/matterbridge.log"
+
 ###################################################################
 #Tengo configuration
 ###################################################################
@@ -1615,7 +1739,7 @@ IgnoreFailureOnStart=false
 #This script will receive every incoming message and can be used to modify the Username and the Text of that message.
 #The script will have the following global variables:
 #to modify: msgUsername and msgText
-#to read: msgChannel and msgAccount
+#to read: msgUserID, msgChannel, msgAccount
 #
 #The script is reloaded on every message, so you can modify the script on the fly.
 #
@@ -1639,9 +1763,12 @@ InMessage="example.tengo"
 #read-only:
 #inAccount, inProtocol, inChannel, inGateway, inEvent
 #outAccount, outProtocol, outChannel, outGateway, outEvent
+#msgUserID
 #
 #read-write:
-#msgText, msgUsername
+#msgText, msgUsername, msgDrop
+#
+#msgDrop is a bool which is default false, when set true this message will be dropped
 #
 #The script is reloaded on every message, so you can modify the script on the fly.
 #
@@ -1654,7 +1781,7 @@ OutMessage="example.tengo"
 #RemoteNickFormat allows you to specify the location of a tengo (https://github.com/d5/tengo/) script.
 #The script will have the following global variables:
 #to modify: result
-#to read: channel, bridge, gateway, protocol, nick
+#to read: channel, bridge, gateway, protocol, nick, msgUserID
 #
 #The result will be set in {TENGO} in the RemoteNickFormat key of every bridge where {TENGO} is specified
 #
@@ -1694,7 +1821,7 @@ enable=true
     # REQUIRED
     account="irc.freenode"
 
-    # The channel key in each gateway is mapped to a similar group chat ID on the chat platform 
+    # The channel key in each gateway is mapped to a similar group chat ID on the chat platform
     # To find the group chat ID for different platforms, refer to the table below
     #
     # Platform   |   Identifier name  |            Example            | Description
@@ -1715,14 +1842,20 @@ enable=true
     # -------------------------------------------------------------------------------------------------------------------------------------
     #   msteams  |      threadId      |    19:82abcxx@thread.skype    | You'll find the threadId in the URL
     # -------------------------------------------------------------------------------------------------------------------------------------
+    #   mumble   |    channel id      |              42               | The channel ID, as shown in the channel's "Edit" window
+    # -------------------------------------------------------------------------------------------------------------------------------------
     # rocketchat |      channel       |            #channel           | # is required for private channels too
     # -------------------------------------------------------------------------------------------------------------------------------------
     #   slack    |   channel name     |            general            | Do not include the # symbol
-    #            |    channel id      |           ID:C123456          | The underlying ID of a channel. This doesn't work with
+    #            |    channel id      |           ID:C123456          | The underlying ID of a channel. This doesn't work with webhooks.
     # -------------------------------------------------------------------------------------------------------------------------------------
     #   steam    |      chatid        |         example needed        | The number in the URL when you click "enter chat room" in the browser
     # -------------------------------------------------------------------------------------------------------------------------------------
+    #   nctalk   |      token         |           xs25tz5y            | The token in the URL when you are in a chat. It will be the last part of the URL.
+    # -------------------------------------------------------------------------------------------------------------------------------------
     #  telegram  |      chatid        |          -123456789           | A large negative number. see https://www.linkedin.com/pulse/telegram-bots-beginners-marco-frau
+    # -------------------------------------------------------------------------------------------------------------------------------------
+    #  vk        |      peerid        |          2000000002           | A number that starts form 2000000000. Use --debug and send any message in chat to get PeerID in the logs 
     # -------------------------------------------------------------------------------------------------------------------------------------
     #  whatsapp  |     group JID      | 48111222333-123455678999@g.us | A unique group JID. If you specify an empty string, bridge will list all the possibilities
     #            |    "Group Name"    |         "Family Chat"         | if you specify a group name, the bridge will find hint the JID to specify. Names can change over time and are not stable.
@@ -1763,13 +1896,16 @@ enable=true
         #OPTIONAL - your irc / xmpp channel key
         key="yourkey"
 
+    # Discord specific gateway options
     [[gateway.inout]]
     account="discord.game"
     channel="mygreatgame"
 
-        #OPTIONAL - webhookurl only works for discord (it needs a different URL for each cahnnel)
         [gateway.inout.options]
-        webhookurl="https://discordapp.com/api/webhooks/123456789123456789/C9WPqExYWONPDZabcdef-def1434FGFjstasJX9pYht73y"
+        # WebhookURL sends messages in the style of "puppets". You must configure a webhook URL for each channel you want to bridge.
+        # If you have more than one channel and don't wnat to configure each channel manually, see the "AutoWebhooks" option in the gateway config.
+        # Example: "https://discord.com/api/webhooks/1234/abcd_xyzw"
+        WebhookURL=""
 
     [[gateway.inout]]
     account="zulip.streamchat"

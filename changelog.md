@@ -1,3 +1,192 @@
+# v1.22.0
+
+Discord users using autowebhooks are encouraged to upgrade to this release.
+
+## New features
+
+- vk: new protocol added: Add vk support (#1245)
+- xmpp: Allow the XMPP bridge to use slack compatible webhooks (xmpp) (#1364)
+
+## Enhancements
+
+- telegram: Rename .oga audio files to .ogg (telegram) (#1349)
+- telegram: Add jpe as valid image filename extension (telegram) (#1360)
+- discord: Add an even more debug option (discord) (#1368)
+- general: Update vendor (#1384)
+
+## Bugfixes
+
+- discord: Pick up all the webhooks (discord) (#1383). Fixes #1353
+
+This release couldn't exist without the following contributors:
+@ivanik7, @Polynomdivision, @PeterDaveHello, @Humorhenker, @qaisjp
+
+# v1.21.0
+
+## Breaking Changes
+
+- discord: Remove WebhookURL support (discord) (#1323)
+
+`WebhookURL` global setting for discord is removed and will quit matterbridge.
+New `AutoWebhooks=true` setting, which will automatically use (and create, if they do not exist) webhooks inside specific channels. This only works if the bot has Manage Webhooks permission in bridged channels (global permission or as a channel permission override). Backwards compatibility with channel-specific webhooks. More info [here](https://github.com/42wim/matterbridge/blob/master/matterbridge.toml.sample#L862). 
+
+## New features
+
+- discord: Create webhooks automatically (#1323)
+- discord: Add threading support with token (discord) (#1342)
+- irc: Join on invite (irc). Fixes #1231 (#1306)
+- irc: Add support for stateless bridging via draft/relaymsg (irc) (#1339)
+- whatsapp: Add support for deleting messages (whatsapp) (#1316)
+- whatsapp: Handle video downloads (whatsapp) (#1316)
+- whatsapp: Handle audio downloads (whatsapp) (#1316)
+
+## Enhancements
+
+- general: Parse fencedcode in ParseMarkdown. Fixes #1127 (#1329)
+- discord: Refactor guild finding code (discord) (#1319)
+- discord: Add a prefix handler for unthreaded messages (discord) (#1346)
+- irc: Add support for irc to irc notice (irc). Fixes #754 (#1305)
+- irc: Make handlers run async (irc) (#1325)
+- matrix: Show mxids in case of clashing usernames (matrix) (#1309)
+- matrix: Implement ratelimiting (matrix). Fixes #1238 (#1326)
+- matrix: Mark messages as read (matrix). Fixes #1317 (#1328)
+- nctalk: Update go-nc-talk (nctalk) (#1333)
+- rocketchat: Update rocketchat vendor (#1327)
+- tengo: Add UserID to RemoteNickFormat and Tengo (#1308)
+- whatsapp: Retry until we have contacts (whatsapp). Fixes #1122 (#1304)
+- whatsapp: Refactor/cleanup code (whatsapp)
+- whatsapp: Refactor handleTextMessage (whatsapp)
+- whatsapp: Refactor image downloads (whatsapp)
+- whatsapp: Rename jfif to jpg (whatsapp). Fixes #1292
+
+## Bugfix
+
+- discord: Reject cross-channel message references (discord) (#1345)
+- mumble: Add nil checks to text message handling (mumble) (#1321)
+
+This release couldn't exist without the following contributors:
+@nightmared, @qaisjp, @jlu5, @wschwab, @gary-kim, @s3lph, @JeremyRand
+
+# v1.20.0
+
+## Breaking
+
+- matrix: Send the display name instead of the user name (matrix) (#1282)  
+  Matrix now sends the displayname if set instead of the username. If you want to keep the username, add  `UseUsername=true` to your matrix config. <https://github.com/42wim/matterbridge/wiki/Settings#useusername-1>
+- discord: Disable webhook editing (discord) (#1296)  
+  Because of issues with ratelimiting of webhook editing, this feature is now disabled. If you have multiple discord channels you bridge, you'll need to add a `webhookURL` to the `[gateway.inout.options]`. See <https://github.com/42wim/matterbridge/blob/master/matterbridge.toml.sample#L1864-L1870> for an example.
+
+## New features
+
+- general: Allow tengo to drop messages using msgDrop (#1272)
+- general: Update libraries (whatsapp,markdown,mattermost,ssh-chat)
+- irc: Add PingDelay option (irc) (#1269)
+- matrix: Allow message edits on matrix (#1286)
+- xmpp: add NoTLS option to allow plaintext XMPP connections (#1288)
+
+## Enhancements
+
+- discord: Edit messages via webhook (1287)
+- general: Add extra debug to log time spent sending a message per bridge (#1299)
+
+This release couldn't exist without the following contributors:
+@nightmared, @zhoreeq
+
+# v1.19.0
+
+## New features
+
+- mumble: new protocol added: Add Mumble support (#1245)
+- nctalk: Add support for downloading files (nctalk) (#1249)
+- nctalk: Append a suffix if user is a guest user (nctalk) (#1250)
+
+## Enhancements
+
+- irc: Add even more debug for irc (#1266)
+- matrix: Add username formatting for all events (matrix) (#1233)
+- matrix: Permit uploading files of other mimetypes (#1237)
+- whatsapp: Use vendored whatsapp version (#1258)
+- whatsapp: Add username for images from WhatsApp (#1232)
+
+This release couldn't exist without the following contributors:
+@Dellle, @42wim, @gary-kim, @s3lph, @BenWiederhake
+
+# v1.18.3
+
+## Enhancements
+
+- nctalk: Add TLSConfig to nctalk (#1195)
+- whatsapp: Handle broadcasts as groups in Whatsapp #1213
+- matrix: switch to upstream gomatrix #1219
+- api: support multiple websocket clients #1205
+
+## Bugfix
+
+- general: update vendor
+- zulip: Check location of avatarURL (zulip). Fixes #1214 (#1227)
+- nctalk: Fix issue with too many open files #1223
+- nctalk: Fix mentions #1222
+- nctalk: Fix message replays #1220
+
+This release couldn't exist without the following contributors:
+@gary-kim, @tilosp, @NikkyAI, @escoand, @42wim
+
+# v1.18.2
+
+## Bugfix
+
+- zulip: Fix error loop (zulip) (#1210)
+- whatsapp: Update whatsapp vendor and fix a panic (#1209)
+
+This release couldn't exist without the following contributors:
+@SuperSandro2000, @42wim
+
+# v1.18.1
+
+## New features
+
+- telegram: Support Telegram animated stickers (tgs) format (#1173). See https://github.com/42wim/matterbridge/wiki/Settings#mediaConverttgs for more info
+
+## Enhancements
+
+- matrix: Remove HTML formatting for push messages (#1188) (#1189)
+- mattermost: Use mattermost v5 module (#1192)
+
+## Bugfix
+
+- whatsapp: Handle panic in whatsapp. Fixes #1180 (#1184)
+- nctalk: Fix Nextcloud Talk connection failure (#1179)
+- matrix: Sleep when ratelimited on joins (matrix). Fixes #1201 (#1206)
+
+This release couldn't exist without the following contributors:
+@42wim, @BenWiederhake, @Dellle, @gary-kim
+
+# v1.18.0
+
+## New features
+
+- nctalk: new protocol added. Add Nextcloud Talk support #1167
+- general: Add an option to log into a file rather than stdout (#1168)
+- api: Add websocket to API (#970)
+
+## Enhancements
+
+- telegram: Fix MarkdownV2 support in Telegram (#1169)
+- whatsapp: Reload user information when a new contact is detected (whatsapp) (#1160)
+- api: Add sane RemoteNickFormat default for API (#1157)
+- irc: Skip gIRC built-in rate limiting (irc) (#1164)
+- irc: Only colour IRC nicks if there is one. (#1161)
+- docker: Combine runs to one layer (#1151)
+
+## Bugfix
+
+- general: Update dependencies for 1.18.0 release (#1175)
+
+Discord users are encouraged to upgrade, this release works with the move to the discord.com domain.
+
+This release couldn't exist without the following contributors:
+@42wim, @jlu5, @qaisjp, @TheHolyRoger, @SuperSandro2000, @gary-kim, @z3bra, @greenx, @haykam821, @nathanaelhoun
+
 # v1.17.5
 
 ## Enhancements

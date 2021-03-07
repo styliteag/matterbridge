@@ -70,7 +70,7 @@ And more...
   - [Changelog](#changelog)
   - [FAQ](#faq)
   - [Related projects](#related-projects)
-  - [Articles](#articles)
+  - [Articles / Tutorials](#articles--tutorials)
   - [Thanks](#thanks)
 
 ## Features
@@ -91,14 +91,18 @@ And more...
 - [IRC](http://www.mirc.com/servers.html)
 - [Keybase](https://keybase.io)
 - [Matrix](https://matrix.org)
-- [Mattermost](https://github.com/mattermost/mattermost-server/) 4.x, 5.x
+- [Mattermost](https://github.com/mattermost/mattermost-server/)
 - [Microsoft Teams](https://teams.microsoft.com)
+- [Mumble](https://www.mumble.info/)
+- [Nextcloud Talk](https://nextcloud.com/talk/)
 - [Rocket.chat](https://rocket.chat)
 - [Slack](https://slack.com)
 - [Ssh-chat](https://github.com/shazow/ssh-chat)
-- [Steam](https://store.steampowered.com/)
+- ~~[Steam](https://store.steampowered.com/)~~
+  - Not supported anymore, see [here](https://github.com/Philipp15b/go-steam/issues/94) for more info.
 - [Telegram](https://telegram.org)
 - [Twitch](https://twitch.tv)
+- [VK](https://vk.com/)
 - [WhatsApp](https://www.whatsapp.com/)
 - [XMPP](https://xmpp.org)
 - [Zulip](https://zulipchat.com)
@@ -108,8 +112,11 @@ And more...
 - [Discourse](https://github.com/DeclanHoare/matterbabble)
 - [Facebook messenger](https://github.com/VictorNine/fbridge)
 - [Minecraft](https://github.com/elytra/MatterLink)
+- [Minecraft](https://github.com/raws/mattercraft)
 - [Reddit](https://github.com/bonehurtingjuice/mattereddit)
 - [Counter-Strike, half-life and more](https://forums.alliedmods.net/showthread.php?t=319430)
+- [MatterAMXX](https://github.com/GabeIggy/MatterAMXX)
+- [Vintage Story](https://github.com/NikkyAI/vs-matterbridge)
 
 ### API
 
@@ -119,11 +126,13 @@ More info and examples on the [wiki](https://github.com/42wim/matterbridge/wiki/
 Used by the projects below. Feel free to make a PR to add your project to this list.
 
 - [MatterLink](https://github.com/elytra/MatterLink) (Matterbridge link for Minecraft Server chat)
+- [Minecraft](https://github.com/raws/mattercraft) (Matterbridge link for Minecraft Server chat)
 - [pyCord](https://github.com/NikkyAI/pyCord) (crossplatform chatbot)
 - [Mattereddit](https://github.com/bonehurtingjuice/mattereddit) (Reddit chat support)
 - [fbridge](https://github.com/VictorNine/fbridge) (Facebook messenger support)
 - [matterbabble](https://github.com/DeclanHoare/matterbabble) (Discourse support)
 - [MatterAMXX](https://forums.alliedmods.net/showthread.php?t=319430) (Counter-Strike, half-life and more via AMXX mod)
+- [Vintage Story](https://github.com/NikkyAI/vs-matterbridge)
 
 ## Chat with us
 
@@ -144,36 +153,37 @@ Questions or want to test on your favorite platform? Join below:
 
 ## Screenshots
 
-See https://github.com/42wim/matterbridge/wiki
+See <https://github.com/42wim/matterbridge/wiki>
 
 ## Installing / upgrading
 
 ### Binaries
 
-- Latest stable release [v1.17.5](https://github.com/42wim/matterbridge/releases/latest)
+- Latest stable release [v1.22.0](https://github.com/42wim/matterbridge/releases/latest)
 - Development releases (follows master) can be downloaded [here](https://github.com/42wim/matterbridge/actions) selecting the latest green build and then artifacts.
 
-To install or upgrade just download the latest [binary](https://github.com/42wim/matterbridge/releases/latest) and follow the instructions on the [howto](https://github.com/42wim/matterbridge/wiki/How-to-create-your-config) for a step by step walkthrough for creating your configuration.
+To install or upgrade just download the latest [binary](https://github.com/42wim/matterbridge/releases/latest). On \*nix platforms you may need to make the binary executable - you can do this by running `chmod a+x` on the binary (example: `chmod a+x matterbridge-1.20.0-linux-64bit`). After downloading (and making the binary executable, if necessary), follow the instructions on the [howto](https://github.com/42wim/matterbridge/wiki/How-to-create-your-config) for a step by step walkthrough for creating your configuration.
 
 ### Packages
 
 - [Overview](https://repology.org/metapackage/matterbridge/versions)
+- [snap](https://snapcraft.io/matterbridge)
+- [scoop](https://github.com/42wim/scoop-bucket)
 
 ## Building
 
 Most people just want to use binaries, you can find those [here](https://github.com/42wim/matterbridge/releases/latest)
 
 If you really want to build from source, follow these instructions:
-Go 1.12+ is required. Make sure you have [Go](https://golang.org/doc/install) properly installed.
+Go 1.13+ is required. Make sure you have [Go](https://golang.org/doc/install) properly installed.
 
-
-```
+```bash
 go get github.com/42wim/matterbridge
 ```
 
 You should now have matterbridge binary in the ~/go/bin directory:
 
-```
+```bash
 $ ls ~/go/bin/
 matterbridge
 ```
@@ -256,7 +266,7 @@ RemoteNickFormat="[{PROTOCOL}/{BRIDGE}] <{NICK}> "
 
 See [howto](https://github.com/42wim/matterbridge/wiki/How-to-create-your-config) for a step by step walkthrough for creating your configuration.
 
-```
+```bash
 Usage of ./matterbridge:
   -conf string
         config file (default "matterbridge.toml")
@@ -293,18 +303,23 @@ See [FAQ](https://github.com/42wim/matterbridge/wiki/FAQ)
 - [fbridge](https://github.com/VictorNine/fbridge) (Facebook messenger support)
 - [isla](https://github.com/alphachung/isla) (Bot for Discord-Telegram groups used alongside matterbridge)
 - [matterbabble](https://github.com/DeclanHoare/matterbabble) (Connect Discourse threads to Matterbridge)
+- [nextcloud talk](https://github.com/nextcloud/talk_matterbridge) (Integrates matterbridge in Nextcloud Talk)
+- [mattercraft](https://github.com/raws/mattercraft) (Minecraft bridge)
+- [vs-matterbridge](https://github.com/NikkyAI/vs-matterbridge) (Vintage Story bridge)
 
-## Articles
+## Articles / Tutorials
 
 - [matterbridge on kubernetes](https://medium.freecodecamp.org/using-kubernetes-to-deploy-a-chat-gateway-or-when-technology-works-like-its-supposed-to-a169a8cd69a3)
-- https://mattermost.com/blog/connect-irc-to-mattermost/
-- https://blog.valvin.fr/2016/09/17/mattermost-et-un-channel-irc-cest-possible/
-- https://blog.brightscout.com/top-10-mattermost-integrations/
-- http://bencey.co.nz/2018/09/17/bridge/
-- https://www.algoo.fr/blog/2018/01/19/recouvrez-votre-liberte-en-quittant-slack-pour-un-mattermost-auto-heberge/
-- https://kopano.com/blog/matterbridge-bridging-mattermost-chat/
-- https://www.stitcher.com/s/?eid=52382713
-- https://daniele.tech/2019/02/how-to-use-matterbridge-to-connect-2-different-slack-workspaces/
+- <https://mattermost.com/blog/connect-irc-to-mattermost/>
+- <https://blog.valvin.fr/2016/09/17/mattermost-et-un-channel-irc-cest-possible/>
+- <https://blog.brightscout.com/top-10-mattermost-integrations/>
+- <https://www.algoo.fr/blog/2018/01/19/recouvrez-votre-liberte-en-quittant-slack-pour-un-mattermost-auto-heberge/>
+- <https://kopano.com/blog/matterbridge-bridging-mattermost-chat/>
+- <https://www.stitcher.com/s/?eid=52382713>
+- <https://daniele.tech/2019/02/how-to-use-matterbridge-to-connect-2-different-slack-workspaces/>
+- <https://userlinux.net/mattermost-and-matterbridge.html>
+- <https://nextcloud.com/blog/bridging-chat-services-in-talk/>
+- Youtube: [whatsapp - telegram bridging](https://www.youtube.com/watch?v=W-VXISoKtNc)
 
 ## Thanks
 
@@ -317,24 +332,28 @@ See [FAQ](https://github.com/42wim/matterbridge/wiki/FAQ)
 
 Matterbridge wouldn't exist without these libraries:
 
-- discord - https://github.com/bwmarrin/discordgo
-- echo - https://github.com/labstack/echo
-- gitter - https://github.com/sromku/go-gitter
-- gops - https://github.com/google/gops
-- gozulipbot - https://github.com/ifo/gozulipbot
-- irc - https://github.com/lrstanley/girc
-- keybase - https://github.com/keybase/go-keybase-chat-bot
-- matrix - https://github.com/matrix-org/gomatrix
-- mattermost - https://github.com/mattermost/mattermost-server
-- msgraph.go - https://github.com/yaegashi/msgraph.go
-- slack - https://github.com/nlopes/slack
-- sshchat - https://github.com/shazow/ssh-chat
-- steam - https://github.com/Philipp15b/go-steam
-- telegram - https://github.com/go-telegram-bot-api/telegram-bot-api
-- tengo - https://github.com/d5/tengo
-- whatsapp - https://github.com/Rhymen/go-whatsapp/
-- xmpp - https://github.com/mattn/go-xmpp
-- zulip - https://github.com/ifo/gozulipbot
+- discord - <https://github.com/bwmarrin/discordgo>
+- echo - <https://github.com/labstack/echo>
+- gitter - <https://github.com/sromku/go-gitter>
+- gops - <https://github.com/google/gops>
+- gozulipbot - <https://github.com/ifo/gozulipbot>
+- gumble - <https://github.com/layeh/gumble>
+- irc - <https://github.com/lrstanley/girc>
+- keybase - <https://github.com/keybase/go-keybase-chat-bot>
+- matrix - <https://github.com/matrix-org/gomatrix>
+- mattermost - <https://github.com/mattermost/mattermost-server>
+- msgraph.go - <https://github.com/yaegashi/msgraph.go>
+- mumble - <https://github.com/layeh/gumble>
+- nctalk - <https://github.com/gary-kim/go-nc-talk>
+- slack - <https://github.com/nlopes/slack>
+- sshchat - <https://github.com/shazow/ssh-chat>
+- steam - <https://github.com/Philipp15b/go-steam>
+- telegram - <https://github.com/go-telegram-bot-api/telegram-bot-api>
+- tengo - <https://github.com/d5/tengo>
+- vk - <https://github.com/SevereCloud/vksdk>
+- whatsapp - <https://github.com/Rhymen/go-whatsapp>
+- xmpp - <https://github.com/mattn/go-xmpp>
+- zulip - <https://github.com/ifo/gozulipbot>
 
 <!-- Links -->
 
@@ -346,7 +365,7 @@ Matterbridge wouldn't exist without these libraries:
 [mb-mattermost]: https://framateam.org/signup_user_complete/?id=tfqm33ggop8x3qgu4boeieta6e
 [mb-msteams]: https://teams.microsoft.com/join/hj92x75gd3y7
 [mb-rocketchat]: https://open.rocket.chat/channel/matterbridge
-[mb-slack]: https://join.slack.com/matterbridgechat/shared_invite/MjEwODMxNjU1NDMwLTE0OTk2MTU3NTMtMzZkZmRiNDZhOA
+[mb-slack]: https://join.slack.com/t/matterbridgechat/shared_invite/zt-2ourq2h2-7YvyYBq2WFGC~~zEzA68_Q
 [mb-telegram]: https://t.me/Matterbridge
 [mb-twitch]: https://www.twitch.tv/matterbridge
 [mb-whatsapp]: https://www.whatsapp.com/

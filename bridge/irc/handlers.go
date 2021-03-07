@@ -67,6 +67,20 @@ func (b *Birc) handleFiles(msg *config.Message) bool {
 	return true
 }
 
+func (b *Birc) handleInvite(client *girc.Client, event girc.Event) {
+	if len(event.Params) != 2 {
+		return
+	}
+
+	channel := event.Params[1]
+
+	b.Log.Debugf("got invite for %s", channel)
+
+	if _, ok := b.channels[channel]; ok {
+		b.i.Cmd.Join(channel)
+	}
+}
+
 func (b *Birc) handleJoinPart(client *girc.Client, event girc.Event) {
 	if len(event.Params) == 0 {
 		b.Log.Debugf("handleJoinPart: empty Params? %#v", event)
@@ -109,14 +123,15 @@ func (b *Birc) handleNewConnection(client *girc.Client, event girc.Event) {
 	i := b.i
 	b.Nick = event.Params[0]
 
-	i.Handlers.Add("PRIVMSG", b.handlePrivMsg)
-	i.Handlers.Add("CTCP_ACTION", b.handlePrivMsg)
+	i.Handlers.AddBg("PRIVMSG", b.handlePrivMsg)
+	i.Handlers.AddBg("CTCP_ACTION", b.handlePrivMsg)
 	i.Handlers.Add(girc.RPL_TOPICWHOTIME, b.handleTopicWhoTime)
-	i.Handlers.Add(girc.NOTICE, b.handleNotice)
-	i.Handlers.Add("JOIN", b.handleJoinPart)
-	i.Handlers.Add("PART", b.handleJoinPart)
-	i.Handlers.Add("QUIT", b.handleJoinPart)
-	i.Handlers.Add("KICK", b.handleJoinPart)
+	i.Handlers.AddBg(girc.NOTICE, b.handleNotice)
+	i.Handlers.AddBg("JOIN", b.handleJoinPart)
+	i.Handlers.AddBg("PART", b.handleJoinPart)
+	i.Handlers.AddBg("QUIT", b.handleJoinPart)
+	i.Handlers.AddBg("KICK", b.handleJoinPart)
+	i.Handlers.Add("INVITE", b.handleInvite)
 }
 
 func (b *Birc) handleNickServ() {
@@ -170,12 +185,24 @@ func (b *Birc) handlePrivMsg(client *girc.Client, event girc.Event) {
 	if b.skipPrivMsg(event) {
 		return
 	}
-	rmsg := config.Message{Username: event.Source.Name, Channel: strings.ToLower(event.Params[0]), Account: b.Account, UserID: event.Source.Ident + "@" + event.Source.Host}
+
+	rmsg := config.Message{
+		Username: event.Source.Name,
+		Channel:  strings.ToLower(event.Params[0]),
+		Account:  b.Account,
+		UserID:   event.Source.Ident + "@" + event.Source.Host,
+	}
+
 	b.Log.Debugf("== Receiving PRIVMSG: %s %s %#v", event.Source.Name, event.Last(), event)
 
 	// set action event
 	if event.IsAction() {
 		rmsg.Event = config.EventUserAction
+	}
+
+	// set NOTICE event
+	if event.Command == "NOTICE" {
+		rmsg.Event = config.EventNoticeIRC
 	}
 
 	// strip action, we made an event if it was an action
