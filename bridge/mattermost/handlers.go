@@ -110,7 +110,7 @@ func (b *Bmattermost) handleMatterClient(messages chan *config.Message) {
 
 	// If A message is of type "D" (a private message) from another user
 	// Then mark the message as a private message
-	if message.Raw.Data["channel_type"].(string) == "D" {
+	if message.Raw.GetData()["channel_type"].(string) == "D" {
 		channelName = "@private"
 	}
 

@@ -238,11 +238,11 @@ func (b *Bmattermost) skipMessage(message *matterclient.Message) bool {
 		return true
 	}
 
-	if message.Raw.Data["channel_type"].(string) == "D" {
+	if message.Raw.GetData()["channel_type"].(string) == "D" {
 		b.Log.Debugf("Private Message, emulating....")
 		message.Channel = "@private"
-		message.Raw.Data["team_id"] = b.TeamID
-		//message.Text = message.Raw.Data["channel_display_name"].(string) + ": " + message.Text
+		message.Raw.GetData()["team_id"] = b.TeamID
+		//message.Text = message.Raw.GetData()["channel_display_name"].(string) + ": " + message.Text
 		//return true
 	}
 
