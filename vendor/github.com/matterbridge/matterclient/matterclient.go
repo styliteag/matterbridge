@@ -176,7 +176,11 @@ func (m *Client) Login() error {
 		go m.OnWsConnect()
 	}
 
-	go m.checkConnection(ctx)
+	// checkConnection/checkAlive is not used here — the WsReceiver already handles
+	// reconnection via ListenError checks (every 10s) and PingTimeoutChannel (65s).
+	// The official Mattermost client relies solely on websocket-level ping/pong.
+	// checkConnection's HTTP GetPing and application-level "ping" messages at 45s
+	// intervals were correlated with connection drops.
 
 	if m.AntiIdle {
 		if m.AntiIdleChan == "" {
@@ -247,8 +251,6 @@ func (m *Client) Reconnect() {
 			if m.OnWsConnect != nil {
 				go m.OnWsConnect()
 			}
-
-			go m.checkConnection(ctx)
 
 			m.reconnectSince = time.Now()
 			m.logger.Info("reconnect successful (websocket-only)")
