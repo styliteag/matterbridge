@@ -696,12 +696,16 @@ func (m *Client) WsReceiver(ctx context.Context) {
 
 // Logout disconnects the client from the chat server.
 func (m *Client) reconnectLogout() error {
-	err := m.Logout()
-	m.WsQuit = false
+	m.logger.Debug("reconnectLogout: cancelling context to exit goroutines")
+	m.loginCancel()
 
-	if err != nil {
-		return err
-	}
+	m.logger.Debug("reconnectLogout: closing websocket")
+	m.WsClient.Close()
+
+	// Do NOT call the server-side Logout API here. When multiple team connections
+	// share the same user, revoking the session server-side kills all websocket
+	// connections for that user, causing a cascading reconnect loop.
+	m.WsQuit = false
 
 	return nil
 }
