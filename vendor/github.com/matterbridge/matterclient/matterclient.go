@@ -226,8 +226,39 @@ func (m *Client) Reconnect() {
 		m.reconnectCount = 0
 	}
 
-	m.logger.Info("reconnect: logout")
+	m.logger.Info("reconnect: closing websocket")
 	m.reconnectLogout()
+
+	// Try a lightweight websocket-only reconnect first. A full Login() creates a
+	// new session, and the server may invalidate older sessions, killing websockets
+	// for other team connections using the same user.
+	if m.Client != nil && m.Client.AuthToken != "" {
+		m.logger.Info("reconnect: attempting websocket-only reconnect with existing token")
+
+		if _, _, err := m.Client.GetPing(context.TODO()); err == nil {
+			m.WsConnected = false
+			m.wsConnect()
+
+			ctx, loginCancel := context.WithCancel(context.TODO())
+			m.loginCancel = loginCancel
+
+			go m.WsReceiver(ctx)
+
+			if m.OnWsConnect != nil {
+				go m.OnWsConnect()
+			}
+
+			go m.checkConnection(ctx)
+
+			m.reconnectSince = time.Now()
+			m.logger.Info("reconnect successful (websocket-only)")
+			m.reconnectBusy = false
+
+			return
+		}
+
+		m.logger.Info("reconnect: existing token invalid, falling back to full login")
+	}
 
 	for {
 		m.logger.Info("reconnect: login")
