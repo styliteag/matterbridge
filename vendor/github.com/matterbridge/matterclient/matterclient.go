@@ -72,6 +72,7 @@ type Client struct {
 	OnWsConnect   func()
 	reconnectBusy    bool
 	reconnectBackoff *backoff.Backoff
+	reconnectCount   int
 	reconnectSince   time.Time
 	Timeout          int
 
@@ -205,22 +206,24 @@ func (m *Client) Reconnect() {
 
 	if m.reconnectBackoff == nil {
 		m.reconnectBackoff = &backoff.Backoff{
-			Min:    time.Second,
+			Min:    5 * time.Second,
 			Max:    5 * time.Minute,
 			Factor: 2,
 			Jitter: true,
 		}
 	}
 
-	// If the last successful reconnect was recent (< 2 minutes), apply backoff
-	// to avoid a tight reconnect loop when connections keep dropping immediately.
-	if !m.reconnectSince.IsZero() && time.Since(m.reconnectSince) < 2*time.Minute {
+	// If the last successful reconnect was recent (< 5 minutes), apply increasing
+	// backoff to avoid a tight reconnect loop when connections keep dropping.
+	if !m.reconnectSince.IsZero() && time.Since(m.reconnectSince) < 5*time.Minute {
+		m.reconnectCount++
 		d := m.reconnectBackoff.Duration()
-		m.logger.Infof("reconnect: waiting %s before reconnecting (connection was unstable)", d)
+		m.logger.Infof("reconnect: waiting %s before reconnecting (attempt %d, connection was unstable)", d, m.reconnectCount)
 		time.Sleep(d)
 	} else {
 		// Connection was stable long enough, reset backoff
 		m.reconnectBackoff.Reset()
+		m.reconnectCount = 0
 	}
 
 	m.logger.Info("reconnect: logout")
@@ -560,12 +563,12 @@ func (m *Client) wsConnect() {
 }
 
 func (m *Client) doCheckAlive() error {
-	if _, _, err := m.Client.GetPing(context.TODO()); err != nil {
-		return err
-	}
-
 	if m.reconnectBusy {
 		return nil
+	}
+
+	if _, _, err := m.Client.GetPing(context.TODO()); err != nil {
+		return err
 	}
 
 	if m.WsClient.ListenError == nil {
@@ -611,10 +614,10 @@ func (m *Client) checkConnection(ctx context.Context) {
 	for {
 		select {
 		case alive := <-m.aliveChan:
-			if !alive {
+			if !alive && !m.reconnectBusy {
 				time.Sleep(time.Second * 10)
 
-				if m.doCheckAlive() != nil {
+				if !m.reconnectBusy && m.doCheckAlive() != nil {
 					m.Reconnect()
 				}
 			}
