@@ -70,8 +70,10 @@ type Client struct {
 	WsQuit        bool
 	WsConnected   bool
 	OnWsConnect   func()
-	reconnectBusy bool
-	Timeout       int
+	reconnectBusy    bool
+	reconnectBackoff *backoff.Backoff
+	reconnectSince   time.Time
+	Timeout          int
 
 	logger      *logrus.Entry
 	rootLogger  *logrus.Logger
@@ -201,6 +203,26 @@ func (m *Client) Reconnect() {
 
 	m.reconnectBusy = true
 
+	if m.reconnectBackoff == nil {
+		m.reconnectBackoff = &backoff.Backoff{
+			Min:    time.Second,
+			Max:    5 * time.Minute,
+			Factor: 2,
+			Jitter: true,
+		}
+	}
+
+	// If the last successful reconnect was recent (< 2 minutes), apply backoff
+	// to avoid a tight reconnect loop when connections keep dropping immediately.
+	if !m.reconnectSince.IsZero() && time.Since(m.reconnectSince) < 2*time.Minute {
+		d := m.reconnectBackoff.Duration()
+		m.logger.Infof("reconnect: waiting %s before reconnecting (connection was unstable)", d)
+		time.Sleep(d)
+	} else {
+		// Connection was stable long enough, reset backoff
+		m.reconnectBackoff.Reset()
+	}
+
 	m.logger.Info("reconnect: logout")
 	m.reconnectLogout()
 
@@ -209,14 +231,17 @@ func (m *Client) Reconnect() {
 
 		err := m.Login()
 		if err != nil {
-			m.logger.Errorf("reconnect: login failed: %s, retrying in 10 seconds", err)
-			time.Sleep(time.Second * 10)
+			d := m.reconnectBackoff.Duration()
+			m.logger.Errorf("reconnect: login failed: %s, retrying in %s", err, d)
+			time.Sleep(d)
 
 			continue
 		}
 
 		break
 	}
+
+	m.reconnectSince = time.Now()
 
 	m.logger.Info("reconnect successful")
 
