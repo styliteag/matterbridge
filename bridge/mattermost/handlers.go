@@ -3,6 +3,7 @@ package bmattermost
 import (
 	"context"
 	"runtime/debug"
+	"time"
 
 	"github.com/42wim/matterbridge/bridge/config"
 	"github.com/42wim/matterbridge/bridge/helper"
@@ -78,7 +79,7 @@ func (b *Bmattermost) handleMatter() {
 		if b.GetString("WebhookBindAddress") == "" && b.GetString("WebhookURL") != "" && b.GetString("Token") == "" && b.GetString("Login") == "" {
 			b.Log.Debugf("No WebhookBindAddress specified, only WebhookURL. You will not receive messages from mattermost, only sending is possible.")
 		}
-		go b.handleMatterClient(messages)
+		go b.superviseHandleMatterClient(messages)
 	}
 	var ok bool
 	for message := range messages {
@@ -95,14 +96,30 @@ func (b *Bmattermost) handleMatter() {
 	}
 }
 
+// superviseHandleMatterClient restarts handleMatterClient if it panics.
+// Without this, a panic would leave b.mc.MessageChan undrained, which in turn
+// would block the matterclient WsReceiver on its send and silently freeze the
+// whole bridge.
+func (b *Bmattermost) superviseHandleMatterClient(messages chan *config.Message) {
+	for attempt := 1; ; attempt++ {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			defer func() {
+				if r := recover(); r != nil {
+					b.Log.Errorf("PANIC in handleMatterClient (attempt %d) account=%s: %v\n%s", attempt, b.Account, r, debug.Stack())
+				}
+			}()
+			b.handleMatterClient(messages)
+		}()
+		<-done
+		b.Log.Warnf("handleMatterClient exited for account=%s — restarting in 2s (attempt %d)", b.Account, attempt)
+		time.Sleep(2 * time.Second)
+	}
+}
+
 //nolint:cyclop
 func (b *Bmattermost) handleMatterClient(messages chan *config.Message) {
-	defer func() {
-		if r := recover(); r != nil {
-			b.Log.Errorf("PANIC in handleMatterClient: %v (stack: %s)", r, debug.Stack())
-		}
-	}()
-
 	b.Log.Infof("handleMatterClient: started for account=%s teamID=%s", b.Account, b.TeamID)
 
 	for message := range b.mc.MessageChan {

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -70,7 +71,9 @@ type Client struct {
 	WsQuit        bool
 	WsConnected   bool
 	OnWsConnect   func()
-	reconnectBusy    bool
+	reconnectBusy    atomic.Bool
+	reconnectTotal   atomic.Int64
+	droppedTotal     atomic.Int64
 	reconnectBackoff *backoff.Backoff
 	reconnectCount   int
 	reconnectSince   time.Time
@@ -202,15 +205,15 @@ func (m *Client) Login() error {
 }
 
 func (m *Client) Reconnect() {
-	if m.reconnectBusy {
+	if !m.reconnectBusy.CompareAndSwap(false, true) {
 		m.logger.Infof("WS-RECONNECT-SKIP team=%s already in progress", m.Credentials.Team)
 		return
 	}
+	defer m.reconnectBusy.Store(false)
 
-	m.logger.Infof("WS-RECONNECT-START team=%s", m.Credentials.Team)
+	m.reconnectTotal.Add(1)
+	m.logger.Infof("WS-RECONNECT-START team=%s total=%d", m.Credentials.Team, m.reconnectTotal.Load())
 	defer m.logger.Infof("WS-RECONNECT-END team=%s", m.Credentials.Team)
-
-	m.reconnectBusy = true
 
 	if m.reconnectBackoff == nil {
 		m.reconnectBackoff = &backoff.Backoff{
@@ -258,7 +261,6 @@ func (m *Client) Reconnect() {
 
 			m.reconnectSince = time.Now()
 			m.logger.Info("reconnect successful (websocket-only)")
-			m.reconnectBusy = false
 
 			return
 		}
@@ -284,8 +286,6 @@ func (m *Client) Reconnect() {
 	m.reconnectSince = time.Now()
 
 	m.logger.Info("reconnect successful")
-
-	m.reconnectBusy = false
 }
 
 func (m *Client) initClient(b *backoff.Backoff) error {
@@ -600,7 +600,7 @@ func (m *Client) wsConnect() {
 }
 
 func (m *Client) doCheckAlive() error {
-	if m.reconnectBusy {
+	if m.reconnectBusy.Load() {
 		return nil
 	}
 
@@ -651,10 +651,10 @@ func (m *Client) checkConnection(ctx context.Context) {
 	for {
 		select {
 		case alive := <-m.aliveChan:
-			if !alive && !m.reconnectBusy {
+			if !alive && !m.reconnectBusy.Load() {
 				time.Sleep(time.Second * 10)
 
-				if !m.reconnectBusy && m.doCheckAlive() != nil {
+				if !m.reconnectBusy.Load() && m.doCheckAlive() != nil {
 					m.Reconnect()
 				}
 			}
@@ -703,7 +703,21 @@ func (m *Client) WsReceiver(ctx context.Context) {
 				m.parseMessage(msg)
 			}
 
-			m.MessageChan <- msg
+			select {
+			case m.MessageChan <- msg:
+			default:
+				// Handler is stalled — keep receiver responsive to ping/timeout by dropping the oldest buffered event.
+				m.droppedTotal.Add(1)
+				select {
+				case <-m.MessageChan:
+				default:
+				}
+				select {
+				case m.MessageChan <- msg:
+				default:
+					m.logger.Warnf("WS-DROP team=%s MessageChan full, dropped event type=%s (total_dropped=%d)", team, event.EventType(), m.droppedTotal.Load())
+				}
+			}
 		case response, ok := <-m.WsClient.ResponseChannel:
 			if !ok {
 				m.logger.Warnf("WS-CLOSED team=%s ResponseChannel closed — triggering reconnect", team)
@@ -737,7 +751,8 @@ func (m *Client) WsReceiver(ctx context.Context) {
 			}
 		case <-heartbeat.C:
 			age := time.Since(m.lastPong)
-			m.logger.Infof("WS-ALIVE team=%s events_received=%d lastPong=%s (%.0fs ago)", team, eventCount, m.lastPong.Format(time.RFC3339), age.Seconds())
+			m.logger.Infof("WS-ALIVE team=%s events_received=%d reconnects=%d dropped=%d lastPong=%s (%.0fs ago)",
+				team, eventCount, m.reconnectTotal.Load(), m.droppedTotal.Load(), m.lastPong.Format(time.RFC3339), age.Seconds())
 			if age > 3*time.Minute {
 				m.logger.Warnf("WS-STALE team=%s no pong for %s — forcing reconnect", team, age)
 				go m.Reconnect()
