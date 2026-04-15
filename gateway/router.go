@@ -20,6 +20,8 @@ type Router struct {
 	Message          chan config.Message
 	MattermostPlugin chan config.Message
 
+	unconfiguredSeen sync.Map // key: account + "\x00" + channel
+
 	logger *logrus.Entry
 }
 
@@ -132,6 +134,7 @@ func (r *Router) handleReceive() {
 		msg := msg // scopelint
 		r.logger.Infof("ROUTER-RECV account=%s channel=%s user=%s event=%s text_len=%d",
 			msg.Account, msg.Channel, msg.Username, msg.Event, len(msg.Text))
+		r.reportUnconfiguredChannel(&msg)
 		r.handleEventGetChannelMembers(&msg)
 		r.handleEventFailure(&msg)
 		r.handleEventRejoinChannels(&msg)
@@ -172,6 +175,40 @@ func (r *Router) handleReceive() {
 			}
 		}
 	}
+}
+
+// reportUnconfiguredChannel logs a one-time, parseable line when a message
+// arrives from a (account, channel) pair that is not present in any gateway's
+// configured channels. The log format is consumed by
+// scripts/suggest-unconfigured.sh to produce ready-to-paste TOML snippets.
+func (r *Router) reportUnconfiguredChannel(msg *config.Message) {
+	if msg.Channel == "" || msg.Account == "" {
+		return
+	}
+	switch msg.Event {
+	case config.EventJoinLeave, config.EventTopicChange, config.EventFailure,
+		config.EventFileFailureSize, config.EventAvatarDownload,
+		config.EventRejoinChannels, config.EventAPIConnected,
+		config.EventUserTyping, config.EventGetChannelMembers:
+		return
+	}
+
+	key := msg.Channel + msg.Account
+	for _, gw := range r.Gateways {
+		if _, ok := gw.Channels[key]; ok {
+			return
+		}
+	}
+
+	dedupKey := msg.Account + "\x00" + msg.Channel
+	if _, loaded := r.unconfiguredSeen.LoadOrStore(dedupKey, struct{}{}); loaded {
+		return
+	}
+
+	r.logger.Warnf(
+		"UNCONFIGURED-CHANNEL account=%q channel=%q -- add to matterbridge.toml under your existing [[gateway.inout]]: { account = %q, channel = %q }",
+		msg.Account, msg.Channel, msg.Account, msg.Channel,
+	)
 }
 
 // updateChannelMembers sends every minute an GetChannelMembers event to all bridges.
