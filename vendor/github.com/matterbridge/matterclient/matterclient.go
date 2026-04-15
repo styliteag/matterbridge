@@ -240,34 +240,12 @@ func (m *Client) Reconnect() {
 	m.logger.Info("reconnect: closing websocket")
 	m.reconnectLogout()
 
-	// Try a lightweight websocket-only reconnect first. A full Login() creates a
-	// new session, and the server may invalidate older sessions, killing websockets
-	// for other team connections using the same user.
-	if m.Client != nil && m.Client.AuthToken != "" {
-		m.logger.Info("reconnect: attempting websocket-only reconnect with existing token")
-
-		if _, _, err := m.Client.GetPing(context.TODO()); err == nil {
-			m.WsConnected = false
-			m.wsConnect()
-
-			ctx, loginCancel := context.WithCancel(context.TODO())
-			m.loginCancel = loginCancel
-
-			go m.WsReceiver(ctx)
-
-			if m.OnWsConnect != nil {
-				go m.OnWsConnect()
-			}
-
-			m.reconnectSince = time.Now()
-			m.logger.Info("reconnect successful (websocket-only)")
-
-			return
-		}
-
-		m.logger.Info("reconnect: existing token invalid, falling back to full login")
-	}
-
+	// Always perform a full Login() on reconnect, matching upstream
+	// matterbridge-org/matterbridge behavior. The previous websocket-only
+	// fast path reused a potentially revoked AuthToken and caused silent
+	// reconnect loops where the WS opens, receives only `hello`, then the
+	// server closed the socket ~30s later on the first authenticated
+	// subscription.
 	for {
 		m.logger.Info("reconnect: login")
 
