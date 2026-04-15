@@ -680,9 +680,10 @@ func (m *Client) WsReceiver(ctx context.Context) {
 	var eventCount int
 	for {
 		select {
-		case event := <-m.WsClient.EventChannel:
-			if event == nil {
-				m.logger.Warnf("WS-CLOSED team=%s EventChannel returned nil (connection closed), received=%d events in this session", team, eventCount)
+		case event, ok := <-m.WsClient.EventChannel:
+			if !ok || event == nil {
+				m.logger.Warnf("WS-CLOSED team=%s EventChannel closed/nil (connection closed), received=%d events in this session — triggering reconnect", team, eventCount)
+				go m.Reconnect()
 				return
 			}
 
@@ -703,7 +704,12 @@ func (m *Client) WsReceiver(ctx context.Context) {
 			}
 
 			m.MessageChan <- msg
-		case response := <-m.WsClient.ResponseChannel:
+		case response, ok := <-m.WsClient.ResponseChannel:
+			if !ok {
+				m.logger.Warnf("WS-CLOSED team=%s ResponseChannel closed — triggering reconnect", team)
+				go m.Reconnect()
+				return
+			}
 			if response == nil || !response.IsValid() {
 				continue
 			}
@@ -730,7 +736,13 @@ func (m *Client) WsReceiver(ctx context.Context) {
 				return
 			}
 		case <-heartbeat.C:
-			m.logger.Infof("WS-ALIVE team=%s events_received=%d lastPong=%s", team, eventCount, m.lastPong.Format(time.RFC3339))
+			age := time.Since(m.lastPong)
+			m.logger.Infof("WS-ALIVE team=%s events_received=%d lastPong=%s (%.0fs ago)", team, eventCount, m.lastPong.Format(time.RFC3339), age.Seconds())
+			if age > 3*time.Minute {
+				m.logger.Warnf("WS-STALE team=%s no pong for %s — forcing reconnect", team, age)
+				go m.Reconnect()
+				return
+			}
 		case <-ctx.Done():
 			m.logger.Infof("WS-CTXDONE team=%s wsReceiver exiting via ctx.Done", team)
 

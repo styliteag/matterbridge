@@ -1,7 +1,7 @@
 package version
 
 var (
-	Release   = "1.26.1-dev-stylite-debuglog-3"
+	Release   = "1.26.1-dev-stylite-debuglog-4"
 	GitHash   string
 	BuildTime string
 )
