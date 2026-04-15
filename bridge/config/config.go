@@ -2,14 +2,18 @@ package config
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	toml "github.com/pelletier/go-toml/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
@@ -313,6 +317,11 @@ func newConfigFromString(logger *logrus.Entry, input []byte, cfgtype string) *co
 	viper.AutomaticEnv()
 
 	if err := viper.ReadConfig(bytes.NewBuffer(input)); err != nil {
+		if cfgtype == "toml" {
+			if detail := tomlErrorDetail(input, err); detail != "" {
+				logger.Fatalf("Failed to parse the configuration: %s\n%s", err, detail)
+			}
+		}
 		logger.Fatalf("Failed to parse the configuration: %s", err)
 	}
 
@@ -439,4 +448,55 @@ func (c *TestConfig) GetStringSlice2D(key string) ([][]string, bool) {
 		return val.([][]string), true
 	}
 	return c.Config.GetStringSlice2D(key)
+}
+
+// tomlErrorDetail re-parses the TOML document using pelletier/go-toml/v2 to
+// extract a line/column/highlight for errors that viper surfaces without
+// position information (e.g. "toml: key X is already defined").
+func tomlErrorDetail(input []byte, origErr error) string {
+	var raw map[string]interface{}
+	err := toml.Unmarshal(input, &raw)
+	if err == nil {
+		// Fallback: grep the input for the duplicated key name mentioned in origErr.
+		return tomlDuplicateKeyHint(input, origErr)
+	}
+
+	var de *toml.DecodeError
+	if errors.As(err, &de) {
+		row, col := de.Position()
+		return fmt.Sprintf("  at line %d, column %d\n%s", row, col, de.String())
+	}
+
+	return tomlDuplicateKeyHint(input, origErr)
+}
+
+// tomlDuplicateKeyHint extracts the duplicated key name from a viper/toml
+// error message like `toml: key account is already defined` and points at
+// every line in the input where that key is assigned.
+func tomlDuplicateKeyHint(input []byte, origErr error) string {
+	re := regexp.MustCompile(`key\s+([^\s]+)\s+is already defined`)
+	m := re.FindStringSubmatch(origErr.Error())
+	if len(m) < 2 {
+		return ""
+	}
+	key := m[1]
+
+	keyRe := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(key) + `\s*=`)
+	var hits []string
+	lines := bytes.Split(input, []byte("\n"))
+	var section string
+	sectionRe := regexp.MustCompile(`^\s*\[\[?([^\]]+)\]?\]\s*$`)
+	for i, line := range lines {
+		if sm := sectionRe.FindSubmatch(line); sm != nil {
+			section = string(sm[1])
+		}
+		if keyRe.Match(line) {
+			hits = append(hits, fmt.Sprintf("  line %d [%s]: %s", i+1, section, strings.TrimSpace(string(line))))
+		}
+	}
+
+	if len(hits) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("Duplicate key %q appears at:\n%s", key, strings.Join(hits, "\n"))
 }
