@@ -118,12 +118,16 @@ func (b *Btelegram) getIds(channel string) (int64, int, error) {
 }
 
 func (b *Btelegram) Send(msg config.Message) (string, error) {
+	b.Log.Infof("TG-SEND account=%s fromAccount=%s channel=%s user=%s text_len=%d event=%s",
+		b.Account, msg.Account, msg.Channel, msg.Username, len(msg.Text), msg.Event)
 	b.Log.Debugf("=> Receiving %#v", msg)
 
 	chatid, topicid, err := b.getIds(msg.Channel)
 	if err != nil {
+		b.Log.Errorf("TG-SEND getIds failed for channel=%q: %s", msg.Channel, err)
 		return "", err
 	}
+	b.Log.Infof("TG-SEND resolved chatid=%d topicid=%d", chatid, topicid)
 
 	// map the file SHA to our user (caches the avatar)
 	if msg.Event == config.EventAvatarDownload {

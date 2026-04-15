@@ -2,6 +2,7 @@ package bmattermost
 
 import (
 	"context"
+	"runtime/debug"
 
 	"github.com/42wim/matterbridge/bridge/config"
 	"github.com/42wim/matterbridge/bridge/helper"
@@ -87,6 +88,7 @@ func (b *Bmattermost) handleMatter() {
 		if ok {
 			message.Event = config.EventUserAction
 		}
+		b.Log.Infof("MM-SEND-GW account=%s channel=%s user=%s text_len=%d", b.Account, message.Channel, message.Username, len(message.Text))
 		b.Log.Debugf("<= Sending message from %s on %s to gateway", message.Username, b.Account)
 		b.Log.Debugf("<= Message is %#v", message)
 		b.Remote <- *message
@@ -95,13 +97,25 @@ func (b *Bmattermost) handleMatter() {
 
 //nolint:cyclop
 func (b *Bmattermost) handleMatterClient(messages chan *config.Message) {
+	defer func() {
+		if r := recover(); r != nil {
+			b.Log.Errorf("PANIC in handleMatterClient: %v (stack: %s)", r, debug.Stack())
+		}
+	}()
+
+	b.Log.Infof("handleMatterClient: started for account=%s teamID=%s", b.Account, b.TeamID)
+
 	for message := range b.mc.MessageChan {
-		b.Log.Debugf("%#v %#v", message.Raw.GetData(), message.Raw.EventType())
+		b.Log.Infof("MM-RECV account=%s event=%s team=%s channel=%s type=%q user=%s text_len=%d",
+			b.Account, message.Raw.EventType(), message.Team, message.Channel, message.Type, message.Username, len(message.Text))
+		b.Log.Debugf("MM-RECV raw data: %#v", message.Raw.GetData())
 
 		if b.skipMessage(message) {
+			b.Log.Infof("MM-SKIP account=%s event=%s reason=skipMessage", b.Account, message.Raw.EventType())
 			b.Log.Debugf("Skipped message: %#v", message)
 			continue
 		}
+		b.Log.Infof("MM-PASS account=%s event=%s channel=%s — forwarding to messages chan", b.Account, message.Raw.EventType(), message.Channel)
 
 	channelName := b.getChannelName(message.Post.ChannelId)
 	if channelName == "" {
@@ -110,7 +124,7 @@ func (b *Bmattermost) handleMatterClient(messages chan *config.Message) {
 
 	// If A message is of type "D" (a private message) from another user
 	// Then mark the message as a private message
-	if message.Raw.GetData()["channel_type"].(string) == "D" {
+	if ct, ok := message.Raw.GetData()["channel_type"].(string); ok && ct == "D" {
 		channelName = "@private"
 	}
 

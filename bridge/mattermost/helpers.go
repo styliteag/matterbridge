@@ -238,16 +238,15 @@ func (b *Bmattermost) skipMessage(message *matterclient.Message) bool {
 		return true
 	}
 
-	if message.Raw.GetData()["channel_type"].(string) == "D" {
+	if ct, ok := message.Raw.GetData()["channel_type"].(string); ok && ct == "D" {
 		b.Log.Debugf("Private Message, emulating....")
 		message.Channel = "@private"
 		message.Raw.GetData()["team_id"] = b.TeamID
-		//message.Text = message.Raw.GetData()["channel_display_name"].(string) + ": " + message.Text
-		//return true
 	}
 
 	// ignore messages from other teams than ours
-	if message.Raw.GetData()["team_id"].(string) != b.TeamID {
+	teamID, _ := message.Raw.GetData()["team_id"].(string)
+	if teamID != b.TeamID {
 		b.Log.Debug("message from other team, ignoring")
 		return true
 	}

@@ -130,6 +130,8 @@ func (r *Router) getBridge(account string) *bridge.Bridge {
 func (r *Router) handleReceive() {
 	for msg := range r.Message {
 		msg := msg // scopelint
+		r.logger.Infof("ROUTER-RECV account=%s channel=%s user=%s event=%s text_len=%d",
+			msg.Account, msg.Channel, msg.Username, msg.Event, len(msg.Text))
 		r.handleEventGetChannelMembers(&msg)
 		r.handleEventFailure(&msg)
 		r.handleEventRejoinChannels(&msg)
@@ -142,8 +144,10 @@ func (r *Router) handleReceive() {
 			// record all the message ID's of the different bridges
 			var msgIDs []*BrMsgID
 			if gw.ignoreMessage(&msg) {
+				r.logger.Infof("ROUTER-IGNORE gateway=%s account=%s channel=%s", gw.Name, msg.Account, msg.Channel)
 				continue
 			}
+			r.logger.Infof("ROUTER-MATCH gateway=%s account=%s channel=%s bridges=%d", gw.Name, msg.Account, msg.Channel, len(gw.Bridges))
 			msg.Timestamp = time.Now()
 			gw.modifyMessage(&msg)
 			if !filesHandled {
