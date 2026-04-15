@@ -203,8 +203,12 @@ func (m *Client) Login() error {
 
 func (m *Client) Reconnect() {
 	if m.reconnectBusy {
+		m.logger.Infof("WS-RECONNECT-SKIP team=%s already in progress", m.Credentials.Team)
 		return
 	}
+
+	m.logger.Infof("WS-RECONNECT-START team=%s", m.Credentials.Team)
+	defer m.logger.Infof("WS-RECONNECT-END team=%s", m.Credentials.Team)
 
 	m.reconnectBusy = true
 
@@ -589,7 +593,7 @@ func (m *Client) wsConnect() {
 
 	m.lastPong = time.Now()
 
-	m.logger.Debug("WsClient: connected")
+	m.logger.Infof("WS-CONNECT team=%s websocket connected to %s", m.Credentials.Team, wsurl)
 
 	// only start to parse WS messages when login is completely done
 	m.WsConnected = true
@@ -666,14 +670,19 @@ func (m *Client) checkConnection(ctx context.Context) {
 // case of a disconnect it will try to reconnect. A call to this method is blocking until
 // the 'WsQuite' field of the MMClient object is set to 'true'.
 func (m *Client) WsReceiver(ctx context.Context) {
-	m.logger.Debug("starting WsReceiver")
+	team := m.Credentials.Team
+	m.logger.Infof("WS-START team=%s WsReceiver starting", team)
 
 	ticker := time.NewTicker(time.Second * 10)
+	heartbeat := time.NewTicker(time.Second * 60)
+	defer heartbeat.Stop()
 
+	var eventCount int
 	for {
 		select {
 		case event := <-m.WsClient.EventChannel:
 			if event == nil {
+				m.logger.Warnf("WS-CLOSED team=%s EventChannel returned nil (connection closed), received=%d events in this session", team, eventCount)
 				return
 			}
 
@@ -681,11 +690,12 @@ func (m *Client) WsReceiver(ctx context.Context) {
 				continue
 			}
 
-			m.logger.Debugf("WsReceiver event: %#v", event)
+			eventCount++
+			m.logger.Debugf("WS-EVENT team=%s type=%s (#%d)", team, event.EventType(), eventCount)
 
 			msg := &Message{
 				Raw:  event,
-				Team: m.Credentials.Team,
+				Team: team,
 			}
 
 			if !Matterircd {
@@ -708,19 +718,21 @@ func (m *Client) WsReceiver(ctx context.Context) {
 
 			m.parseResponse(response)
 		case <-m.WsClient.PingTimeoutChannel:
-			m.logger.Error("got a ping timeout")
+			m.logger.Errorf("WS-PINGTIMEOUT team=%s got a ping timeout, reconnecting", team)
 			m.Reconnect()
 
 			return
 		case <-ticker.C:
 			if m.WsClient.ListenError != nil {
-				m.logger.Errorf("%#v", m.WsClient.ListenError)
+				m.logger.Errorf("WS-LISTENERR team=%s %#v", team, m.WsClient.ListenError)
 				m.Reconnect()
 
 				return
 			}
+		case <-heartbeat.C:
+			m.logger.Infof("WS-ALIVE team=%s events_received=%d lastPong=%s", team, eventCount, m.lastPong.Format(time.RFC3339))
 		case <-ctx.Done():
-			m.logger.Debugf("wsReceiver: ctx.Done() triggered")
+			m.logger.Infof("WS-CTXDONE team=%s wsReceiver exiting via ctx.Done", team)
 
 			return
 		}
