@@ -41,7 +41,10 @@ func main() {
 		}
 	}
 
+	logger.Printf("============================================================")
 	logger.Printf("Running version %s %s", version.Release, version.GitHash)
+	logger.Printf("Build time: %s", version.BuildTime)
+	logger.Printf("============================================================")
 	if strings.Contains(version.Release, "-dev") {
 		logger.Println("WARNING: THIS IS A DEVELOPMENT VERSION. Things may break.")
 	}

@@ -16,6 +16,8 @@ echo "Building and pushing ${IMAGE} for ${PLATFORMS}..."
 docker buildx build \
   --platform "${PLATFORMS}" \
   -t "${IMAGE}" \
+  --push \
   .
 
-echo "Done. Build ${IMAGE} for ${PLATFORMS}."
+echo "Done. Build + pushed ${IMAGE} for ${PLATFORMS}."
+echo "On the swarm node run:  docker service update --image ${IMAGE} --force bonis_mmbridge_matterbridge"
